@@ -8,8 +8,10 @@ import android.view.ViewGroup
 import android.webkit.WebView
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
@@ -193,103 +195,16 @@ fun ReaderScreen(
         }
     }
 
-    Box(
+    Column(
         modifier = modifier
             .fillMaxSize()
             .background(Color.Black)
     ) {
-        // Main Comic WebView
-        AndroidView(
-            modifier = Modifier.fillMaxSize(),
-            factory = { ctx ->
-                ComicWebView(ctx).apply {
-                    layoutParams = ViewGroup.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.MATCH_PARENT
-                    )
-
-                    onProgressChanged = { progress ->
-                        pageProgress = progress
-                        canGoBack = canGoBack()
-                        canGoForward = canGoForward()
-                    }
-
-                    onTitleReceived = { title ->
-                        pageTitle = title
-                    }
-
-                    onUrlChanged = { newUrl ->
-                        currentUrl = newUrl
-                        inputUrl = newUrl
-                        canGoBack = canGoBack()
-                        canGoForward = canGoForward()
-                        if (newUrl.startsWith("http")) {
-                            val title = pageTitle.ifBlank { newUrl }
-                            historyList = HistoryManager.addHistoryEntry(context, title, newUrl)
-                        }
-                    }
-
-                    onScrollDirectionChanged = { isScrollingDown ->
-                        if (isScrollingDown) {
-                            // User scrolled down: switch to fullscreen reading mode
-                            if (isHudVisible || !isImmersiveFullscreen) {
-                                isHudVisible = false
-                                isImmersiveFullscreen = true
-                            }
-                        } else {
-                            // User scrolled up or reached top: restore basic browser UI
-                            if (!isHudVisible || isImmersiveFullscreen) {
-                                isHudVisible = true
-                                isImmersiveFullscreen = false
-                            }
-                        }
-                    }
-
-                    onSingleTap = {
-                        // Toggle UI HUD and fullscreen mode on tap
-                        val showBrowser = !isHudVisible
-                        isHudVisible = showBrowser
-                        isImmersiveFullscreen = !showBrowser
-                    }
-
-                    onBlockedAdCountChanged = { count ->
-                        blockedAdCount = count
-                    }
-
-                    loadUrl(currentUrl)
-                    webViewRef = this
-                    onRegisterWebView(this)
-                }
-            },
-            update = { webView ->
-                webViewRef = webView
-                webView.setInvertMode(isNightInvertMode)
-                webView.settings.textZoom = webTextZoom
-            }
-        )
-
-        // Loading Progress Bar
-        if (pageProgress in 1..99) {
-            LinearProgressIndicator(
-                progress = { pageProgress / 100f },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .align(Alignment.TopCenter)
-                    .then(
-                        if (isHudVisible) Modifier.statusBarsPadding().padding(top = 56.dp)
-                        else Modifier
-                    ),
-                color = Color(0xFF64B5F6),
-                trackColor = Color.Transparent
-            )
-        }
-
         // Top Navigation Bar (Auto-hiding HUD)
         AnimatedVisibility(
             visible = isHudVisible,
-            enter = slideInVertically(initialOffsetY = { -it }) + fadeIn(),
-            exit = slideOutVertically(targetOffsetY = { -it }) + fadeOut(),
-            modifier = Modifier.align(Alignment.TopCenter)
+            enter = expandVertically() + fadeIn(),
+            exit = shrinkVertically() + fadeOut()
         ) {
             Column(
                 modifier = Modifier
@@ -385,12 +300,100 @@ fun ReaderScreen(
             }
         }
 
+        // Web Content View & Loading Progress Indicator
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+        ) {
+            // Main Comic WebView
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { ctx ->
+                    ComicWebView(ctx).apply {
+                        layoutParams = ViewGroup.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT
+                        )
+
+                        onProgressChanged = { progress ->
+                            pageProgress = progress
+                            canGoBack = canGoBack()
+                            canGoForward = canGoForward()
+                        }
+
+                        onTitleReceived = { title ->
+                            pageTitle = title
+                        }
+
+                        onUrlChanged = { newUrl ->
+                            currentUrl = newUrl
+                            inputUrl = newUrl
+                            canGoBack = canGoBack()
+                            canGoForward = canGoForward()
+                            if (newUrl.startsWith("http")) {
+                                val title = pageTitle.ifBlank { newUrl }
+                                historyList = HistoryManager.addHistoryEntry(context, title, newUrl)
+                            }
+                        }
+
+                        onScrollDirectionChanged = { isScrollingDown ->
+                            if (isScrollingDown) {
+                                // User scrolled down: switch to fullscreen reading mode
+                                if (isHudVisible || !isImmersiveFullscreen) {
+                                    isHudVisible = false
+                                    isImmersiveFullscreen = true
+                                }
+                            } else {
+                                // User scrolled up or reached top: restore basic browser UI
+                                if (!isHudVisible || isImmersiveFullscreen) {
+                                    isHudVisible = true
+                                    isImmersiveFullscreen = false
+                                }
+                            }
+                        }
+
+                        onSingleTap = {
+                            // Toggle UI HUD and fullscreen mode on tap
+                            val showBrowser = !isHudVisible
+                            isHudVisible = showBrowser
+                            isImmersiveFullscreen = !showBrowser
+                        }
+
+                        onBlockedAdCountChanged = { count ->
+                            blockedAdCount = count
+                        }
+
+                        loadUrl(currentUrl)
+                        webViewRef = this
+                        onRegisterWebView(this)
+                    }
+                },
+                update = { webView ->
+                    webViewRef = webView
+                    webView.setInvertMode(isNightInvertMode)
+                    webView.settings.textZoom = webTextZoom
+                }
+            )
+
+            // Loading Progress Bar
+            if (pageProgress in 1..99) {
+                LinearProgressIndicator(
+                    progress = { pageProgress / 100f },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.TopCenter),
+                    color = Color(0xFF64B5F6),
+                    trackColor = Color.Transparent
+                )
+            }
+        }
+
         // Bottom Reading Bar (Auto-hiding HUD)
         AnimatedVisibility(
             visible = isHudVisible,
-            enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
-            exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
-            modifier = Modifier.align(Alignment.BottomCenter)
+            enter = expandVertically() + fadeIn(),
+            exit = shrinkVertically() + fadeOut()
         ) {
             Column(
                 modifier = Modifier

@@ -224,6 +224,8 @@ class ComicWebView @JvmOverloads constructor(
 
     /**
      * Intercept touch events to support a clean tap-to-toggle HUD gesture.
+     * HUD toggle is strictly constrained to the center reading zone so taps on site
+     * headers, search buttons, navigation bars, and footers are never intercepted.
      */
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when (event.action) {
@@ -238,11 +240,21 @@ class ComicWebView @JvmOverloads constructor(
                 val dt = System.currentTimeMillis() - downTime
                 // If it was a quick tap with minimal movement (< 25px, < 300ms)
                 if (dx < 25 && dy < 25 && dt < 300) {
-                    // Don't toggle HUD when tapping on interactive web elements (links, buttons, etc.)
-                    val hitResult = hitTestResult
-                    val isInteractiveElement = hitResult.type != HitTestResult.UNKNOWN_TYPE
-                    if (!isInteractiveElement) {
-                        onSingleTap?.invoke()
+                    // Only allow tap-to-toggle HUD when tapping in the center reading zone.
+                    // Taps in the top zone (site header, search button, tabs) or bottom zone
+                    // (pagination, chapter buttons, footer) must NEVER toggle HUD.
+                    val inCenterZoneY = event.y in (height * 0.30f)..(height * 0.70f)
+                    val inCenterZoneX = event.x in (width * 0.20f)..(width * 0.80f)
+                    if (inCenterZoneY && inCenterZoneX) {
+                        val hitType = hitTestResult.type
+                        val isNavigableLink = hitType == HitTestResult.SRC_ANCHOR_TYPE ||
+                                              hitType == HitTestResult.SRC_IMAGE_ANCHOR_TYPE ||
+                                              hitType == HitTestResult.EDIT_TEXT_TYPE ||
+                                              hitType == HitTestResult.PHONE_TYPE ||
+                                              hitType == HitTestResult.EMAIL_TYPE
+                        if (!isNavigableLink) {
+                            onSingleTap?.invoke()
+                        }
                     }
                 }
             }
