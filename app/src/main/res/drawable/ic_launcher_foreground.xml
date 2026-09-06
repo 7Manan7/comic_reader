@@ -1,0 +1,49 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Comic Book Cover / Backing Glow -->
+    <path
+        android:pathData="M24,42 C33,39 44,44 54,46 C64,44 75,39 84,42 L84,72 C75,69 64,74 54,76 C44,74 33,69 24,72 Z"
+        android:fillColor="#1565C0" />
+
+    <!-- Left Comic Page -->
+    <path
+        android:pathData="M27,41 C36,38 45,43 53,45 L53,73 C45,71 36,66 27,69 Z"
+        android:fillColor="#E3F2FD" />
+
+    <!-- Right Comic Page -->
+    <path
+        android:pathData="M55,45 C63,43 72,38 81,41 L81,69 C72,66 63,71 55,73 Z"
+        android:fillColor="#FFFFFF" />
+
+    <!-- Comic Manga Panels Left -->
+    <path
+        android:pathData="M31,44 L49,47 L49,54 L31,51 Z"
+        android:fillColor="#90CAF9" />
+    <path
+        android:pathData="M31,53 L49,56 L49,63 L31,60 Z"
+        android:fillColor="#64B5F6" />
+
+    <!-- Comic Manga Panels Right -->
+    <path
+        android:pathData="M59,47 L77,44 L77,53 L59,56 Z"
+        android:fillColor="#64B5F6" />
+    <path
+        android:pathData="M59,58 L77,55 L77,63 L59,66 Z"
+        android:fillColor="#90CAF9" />
+
+    <!-- Center Book Spine -->
+    <path
+        android:pathData="M53,45 L55,45 L55,74 L53,74 Z"
+        android:fillColor="#0D47A1" />
+
+    <!-- High Refresh Rate 165Hz Lightning Symbol -->
+    <path
+        android:pathData="M59,26 L43,49 L53,49 L47,72 L67,45 L56,45 Z"
+        android:fillColor="#FFD54F"
+        android:strokeColor="#FF8F00"
+        android:strokeWidth="1.2" />
+</vector>

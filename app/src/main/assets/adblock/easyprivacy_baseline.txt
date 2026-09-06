@@ -1,0 +1,73 @@
+﻿[Adblock Plus 2.0]
+! Title: EasyPrivacy (Baseline Seed)
+! Homepage: https://easylist.to/
+! Licence: GPLv3 / CC BY-SA 3.0
+!
+! *** General domain tracker and analytics blocking rules ***
+||google-analytics.com^
+||analytics.google.com^
+||googletagmanager.com^
+||scorecardresearch.com^
+||hotjar.com^
+||crazyegg.com^
+||mixpanel.com^
+||segment.io^
+||segment.com^
+||amplitude.com^
+||heap.io^
+||optimizely.com^
+||newrelic.com^
+||nr-data.net^
+||sentry.io^
+||bugsnag.com^
+||branch.io^
+||appsflyer.com^
+||adjust.com^
+||kochava.com^
+||singular.net^
+||fullstory.com^
+||mouseflow.com^
+||inspectlet.com^
+||smartlook.com^
+||logrocket.com^
+||clarity.ms^
+||yandex.ru/metrika^
+||mc.yandex.ru^
+||statcounter.com^
+||histats.com^
+||quantcount.com^
+||alexa.com^
+||chartbeat.com^
+||parsely.com^
+||gemius.pl^
+||kissmetrics.com^
+||braze.com^
+||onesignal.com^
+||leanplum.com^
+||clevertap.com^
+||moengage.com^
+||attribution.com^
+||sessioncam.com^
+||clicktale.net^
+||crazyegg.com^
+||luckyorange.com^
+||tealiumiq.com^
+||tiqcdn.com^
+||tagcommander.com^
+||ensighten.com^
+||matomo.org^
+||piwik.pro^
+!
+! *** Tracking path filters ***
+/gtm.js
+/analytics.js
+/ga.js
+/beacon.js
+/telemetry/
+/tracking.js
+/track/pixel
+/tracker.js
+/fingerprint.js
+/fp.js
+/collect?v=
+/event/log?
