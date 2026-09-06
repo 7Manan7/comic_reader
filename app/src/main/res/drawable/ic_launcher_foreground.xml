@@ -1,49 +1,179 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Comic Book Cover / Backing Glow -->
-    <path
-        android:pathData="M24,42 C33,39 44,44 54,46 C64,44 75,39 84,42 L84,72 C75,69 64,74 54,76 C44,74 33,69 24,72 Z"
-        android:fillColor="#1565C0" />
 
-    <!-- Left Comic Page -->
+    <!-- Outer Speed & Energy Trails (Cyan & Magenta Swirls) -->
+    <!-- Magenta vortex ribbon (curving bottom-left to top-left) -->
     <path
-        android:pathData="M27,41 C36,38 45,43 53,45 L53,73 C45,71 36,66 27,69 Z"
-        android:fillColor="#E3F2FD" />
+        android:pathData="M76,67 C72,75 58,79 46,78 C33,77 24,69 25,57 C26,45 32,35 41,30 C38,34 32,43 32,53 C32,63 40,70 51,71 C61,72 70,68 76,67 Z"
+        android:fillColor="#D81B60" />
+    <path
+        android:pathData="M73,65 C68,72 56,76 46,75 C35,74 27,67 28,57 C29,48 34,39 41,34 C38,38 34,45 34,54 C34,62 41,68 50,69 C59,70 67,66 73,65 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="26"
+                android:startY="35"
+                android:endX="74"
+                android:endY="75"
+                android:type="linear">
+                <item android:color="#FF2A85" android:offset="0.0" />
+                <item android:color="#BA68C8" android:offset="0.6" />
+                <item android:color="#7C4DFF" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
 
-    <!-- Right Comic Page -->
+    <!-- Cyan vortex ribbon (curving top-left around to right) -->
     <path
-        android:pathData="M55,45 C63,43 72,38 81,41 L81,69 C72,66 63,71 55,73 Z"
-        android:fillColor="#FFFFFF" />
+        android:pathData="M31,41 C36,31 49,27 61,29 C74,31 82,39 82,51 C82,60 76,68 67,73 C71,68 75,61 75,52 C75,43 69,36 58,34 C47,32 37,36 31,41 Z"
+        android:fillColor="#0097A7" />
+    <path
+        android:pathData="M34,43 C39,34 50,30 61,32 C71,34 78,41 78,51 C78,59 73,66 65,70 C69,66 72,59 72,52 C72,44 66,38 57,36 C48,34 40,38 34,43 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="32"
+                android:startY="30"
+                android:endX="80"
+                android:endY="70"
+                android:type="linear">
+                <item android:color="#00E5FF" android:offset="0.0" />
+                <item android:color="#00B0FF" android:offset="0.5" />
+                <item android:color="#2979FF" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
 
-    <!-- Comic Manga Panels Left -->
+    <!-- Comic Book Cover / Backing Dark Silhouette -->
     <path
-        android:pathData="M31,44 L49,47 L49,54 L31,51 Z"
-        android:fillColor="#90CAF9" />
-    <path
-        android:pathData="M31,53 L49,56 L49,63 L31,60 Z"
-        android:fillColor="#64B5F6" />
+        android:pathData="M48,31 L29,38 C27.5,38.5 26.5,40 26.5,41.5 L26.5,69.5 C26.5,71.2 28.2,72.4 29.8,71.8 L48,65 L68.2,71.8 C69.8,72.4 71.5,71.2 71.5,69.5 L71.5,41.5 C71.5,40 70.5,38.5 69,38 L48,31 Z"
+        android:fillColor="#121626" />
 
-    <!-- Comic Manga Panels Right -->
+    <!-- Left Manga Page Base (Crisp Off-White with Cyan Edge Glow) -->
     <path
-        android:pathData="M59,47 L77,44 L77,53 L59,56 Z"
-        android:fillColor="#64B5F6" />
-    <path
-        android:pathData="M59,58 L77,55 L77,63 L59,66 Z"
-        android:fillColor="#90CAF9" />
+        android:pathData="M47,33 L30,39.5 L30,68.5 L47,63.5 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="30"
+                android:startY="39"
+                android:endX="47"
+                android:endY="64"
+                android:type="linear">
+                <item android:color="#E0F7FA" android:offset="0.0" />
+                <item android:color="#FFFFFF" android:offset="0.4" />
+                <item android:color="#ECEFF1" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
 
-    <!-- Center Book Spine -->
+    <!-- Right Manga Page Base -->
     <path
-        android:pathData="M53,45 L55,45 L55,74 L53,74 Z"
-        android:fillColor="#0D47A1" />
+        android:pathData="M49,33 L66,39.5 L66,68.5 L49,63.5 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="66"
+                android:startY="39"
+                android:endX="49"
+                android:endY="64"
+                android:type="linear">
+                <item android:color="#EDE7F6" android:offset="0.0" />
+                <item android:color="#FFFFFF" android:offset="0.4" />
+                <item android:color="#CFD8DC" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
 
-    <!-- High Refresh Rate 165Hz Lightning Symbol -->
+    <!-- Left Page Comic Panels -->
+    <!-- Top Left Panel -->
     <path
-        android:pathData="M59,26 L43,49 L53,49 L47,72 L67,45 L56,45 Z"
-        android:fillColor="#FFD54F"
-        android:strokeColor="#FF8F00"
-        android:strokeWidth="1.2" />
+        android:pathData="M32.5,42.5 L44.5,38 L44.5,49.5 L32.5,53.5 Z"
+        android:fillColor="#1A237E" />
+    <path
+        android:pathData="M33.5,43.5 L43.5,39.5 L43.5,48.5 L33.5,52 Z"
+        android:fillColor="#00E5FF" />
+    <path
+        android:pathData="M35,45 L42,42 L42,47 L35,49.5 Z"
+        android:fillColor="#001830" />
+
+    <!-- Bottom Left Panel -->
+    <path
+        android:pathData="M32.5,55.5 L44.5,51.5 L44.5,61.5 L32.5,65.5 Z"
+        android:fillColor="#1A237E" />
+    <path
+        android:pathData="M33.5,56.5 L43.5,52.5 L43.5,60.5 L33.5,64 Z"
+        android:fillColor="#FF2A85" />
+    <path
+        android:pathData="M35,58 L42,54.5 L42,59 L35,62 Z"
+        android:fillColor="#2D0017" />
+
+    <!-- Right Page Comic Panels -->
+    <!-- Top Right Panel -->
+    <path
+        android:pathData="M51.5,38 L63.5,42.5 L63.5,53.5 L51.5,49.5 Z"
+        android:fillColor="#1A237E" />
+    <path
+        android:pathData="M52.5,39.5 L62.5,43.5 L62.5,52 L52.5,48.5 Z"
+        android:fillColor="#00E5FF" />
+    <path
+        android:pathData="M54,42 L61,45 L61,50.5 L54,47.5 Z"
+        android:fillColor="#001830" />
+
+    <!-- Bottom Right Panel -->
+    <path
+        android:pathData="M51.5,51.5 L63.5,55.5 L63.5,65.5 L51.5,61.5 Z"
+        android:fillColor="#1A237E" />
+    <path
+        android:pathData="M52.5,52.5 L62.5,56.5 L62.5,64 L52.5,60.5 Z"
+        android:fillColor="#FF2A85" />
+    <path
+        android:pathData="M54,55 L61,58.5 L61,62.5 L54,59.5 Z"
+        android:fillColor="#2D0017" />
+
+    <!-- Book Spine Glow -->
+    <path
+        android:pathData="M47.2,32.5 L48.8,32.5 L48.8,64 L47.2,64 Z"
+        android:fillColor="#00E5FF" />
+
+    <!-- 165Hz Speed Lightning Crest (Electric Gold & Core White) -->
+    <!-- Lightning Outer Glow / Drop Shadow -->
+    <path
+        android:pathData="M58,26 L42,49 L51,49 L45,71 L68,44 L56,44 Z"
+        android:fillColor="#B76500" />
+    <!-- Lightning Main Body -->
+    <path
+        android:pathData="M57,27 L43.5,48 L51.5,48 L46,68 L66,45 L55.5,45 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="44"
+                android:startY="27"
+                android:endX="66"
+                android:endY="68"
+                android:type="linear">
+                <item android:color="#FFF9C4" android:offset="0.0" />
+                <item android:color="#FFEA00" android:offset="0.4" />
+                <item android:color="#FF9100" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <!-- Lightning Inner Core Flare -->
+    <path
+        android:pathData="M56,30 L46,47 L52,47 L48,62 L62,46 L54,46 Z"
+        android:fillColor="#FFFFEE" />
+
+    <!-- Speed Spark Stars & Particles -->
+    <!-- Top right star -->
+    <path
+        android:pathData="M69,37 L70.5,39 L72.5,40.5 L70.5,42 L69,44 L67.5,42 L65.5,40.5 L67.5,39 Z"
+        android:fillColor="#FFD54F" />
+    <!-- Small star particle -->
+    <path
+        android:pathData="M73,47 L74,48 L75,49 L74,50 L73,51 L72,50 L71,49 L72,48 Z"
+        android:fillColor="#FFE082" />
+    <!-- Left particle -->
+    <path
+        android:pathData="M27,33 L28,34 L29,35 L28,36 L27,37 L26,36 L25,35 L26,34 Z"
+        android:fillColor="#00E5FF" />
 </vector>

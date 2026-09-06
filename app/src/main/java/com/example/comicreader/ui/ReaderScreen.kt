@@ -118,7 +118,7 @@ fun ReaderScreen(
     // Web navigation state (Default to comix.to)
     var currentUrl by remember { mutableStateOf("https://comix.to/") }
     var inputUrl by remember { mutableStateOf("https://comix.to/") }
-    var pageTitle by remember { mutableStateOf("Comic Reader") }
+    var pageTitle by remember { mutableStateOf("Kuro Reader") }
     var pageProgress by remember { mutableIntStateOf(0) }
     var canGoBack by remember { mutableStateOf(false) }
     var canGoForward by remember { mutableStateOf(false) }
@@ -714,7 +714,7 @@ fun ReaderScreen(
                     .padding(horizontal = 20.dp, vertical = 12.dp)
             ) {
                 Text(
-                    text = "⚙️ Comic Reader & Display Settings",
+                    text = "⚙️ Kuro Reader & Display Settings",
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.White

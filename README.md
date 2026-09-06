@@ -1,4 +1,4 @@
-# Comic Reader 📖⚡
+# Kuro Reader 📖⚡
 
 A high-performance Android browser app engineered specifically for reading online comics, manga, manhwa, and webtoons. Designed for distraction-free reading with a built-in aggressive ad blocker, full immersive/transparent edge-to-edge system bars, and dynamic display mode optimization supporting high refresh rate screens (**60Hz, 90Hz, 120Hz, 144Hz, and 165Hz+**).
 
@@ -40,8 +40,9 @@ A high-performance Android browser app engineered specifically for reading onlin
     - Concurrent background downloading with GZIP compression and fallback mirrors.
     - Sub-microsecond \(O(1)\) domain suffix matching and dynamic cosmetic CSS filtering.
 
-- **🎨 Custom Comic & Manga App Icon**:
-  - Bespoke comic-themed adaptive icon featuring an open manga volume with panel art, cosmic radial backdrop, and high refresh rate 165Hz lightning emblem.
+- **🎨 Kuro Cosmic HyperScroll Adaptive Icon**:
+  - Bespoke modern adaptive icon featuring dynamic manga panel art, cyber-cyan and electric-magenta energy vortex trails, and a 165Hz golden speed-lightning crest.
+  - Includes dedicated Android 13+ Material You monochrome theming and multi-density high-res mipmaps.
 
 - **📱 Basic Browser UI with Smart Scroll Fullscreen**:
   - **Basic Browser Mode by Default**: Launches with standard browser appearance (visible status bar, top URL/search bar, and bottom navigation bar).
