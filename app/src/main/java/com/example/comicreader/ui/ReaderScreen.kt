@@ -364,6 +364,10 @@ fun ReaderScreen(
                             blockedAdCount = count
                         }
 
+                        onTouchFocus = {
+                            focusManager.clearFocus()
+                        }
+
                         loadUrl(currentUrl)
                         webViewRef = this
                         onRegisterWebView(this)

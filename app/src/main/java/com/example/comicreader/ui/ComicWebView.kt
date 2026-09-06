@@ -10,7 +10,9 @@ import android.util.AttributeSet
 import android.util.Log
 import android.view.MotionEvent
 import android.view.View
+import android.view.inputmethod.InputMethodManager
 import android.webkit.ConsoleMessage
+import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -38,6 +40,7 @@ class ComicWebView @JvmOverloads constructor(
     var onSingleTap: (() -> Unit)? = null
     var onBlockedAdCountChanged: ((Int) -> Unit)? = null
     var onScrollDirectionChanged: ((isScrollingDown: Boolean) -> Unit)? = null
+    var onTouchFocus: (() -> Unit)? = null
 
     private var isInvertedMode: Boolean = false
     private var downX = 0f
@@ -46,9 +49,42 @@ class ComicWebView @JvmOverloads constructor(
     private var lastScrollDirectionChangeTime = 0L
 
     init {
+        isFocusable = true
+        isFocusableInTouchMode = true
         setupHardwareAcceleration()
         setupSettings()
         setupClients()
+        addJavascriptInterface(WebInputBridge(this), "KuroBridge")
+    }
+
+    private class WebInputBridge(private val webView: ComicWebView) {
+        @JavascriptInterface
+        fun onInputFocused() {
+            webView.post {
+                if (!webView.hasFocus()) {
+                    webView.requestFocus()
+                    webView.requestFocusFromTouch()
+                }
+                val imm = webView.context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+                imm?.showSoftInput(webView, InputMethodManager.SHOW_IMPLICIT)
+            }
+        }
+    }
+
+    companion object {
+        private const val INPUT_FOCUS_JS = """
+            (function() {
+                if (window.__kuroInputListenerAttached) return;
+                window.__kuroInputListenerAttached = true;
+                document.addEventListener('focusin', function(e) {
+                    if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable)) {
+                        if (window.KuroBridge) {
+                            window.KuroBridge.onInputFocused();
+                        }
+                    }
+                }, true);
+            })();
+        """
     }
 
     /**
@@ -138,6 +174,8 @@ class ComicWebView @JvmOverloads constructor(
 
                 // Inject Anti-popup script as early as possible to kill window.open and click traps
                 evaluateJavascript(AdBlockEngine.ANTI_POPUP_JS, null)
+                // Inject input focus listener to trigger keyboard when site search bars are focused
+                evaluateJavascript(INPUT_FOCUS_JS, null)
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
@@ -150,6 +188,9 @@ class ComicWebView @JvmOverloads constructor(
 
                 // Re-inject Anti-popup script for dynamically loaded ad nodes
                 evaluateJavascript(AdBlockEngine.ANTI_POPUP_JS, null)
+
+                // Re-inject input focus listener
+                evaluateJavascript(INPUT_FOCUS_JS, null)
 
                 // Re-apply invert color filter if active
                 if (isInvertedMode) {
@@ -233,20 +274,37 @@ class ComicWebView @JvmOverloads constructor(
                 downX = event.x
                 downY = event.y
                 downTime = System.currentTimeMillis()
+                if (!hasFocus()) {
+                    requestFocus()
+                    requestFocusFromTouch()
+                }
+                onTouchFocus?.invoke()
             }
             MotionEvent.ACTION_UP -> {
+                if (!hasFocus()) {
+                    requestFocus()
+                    requestFocusFromTouch()
+                }
                 val dx = Math.abs(event.x - downX)
                 val dy = Math.abs(event.y - downY)
                 val dt = System.currentTimeMillis() - downTime
                 // If it was a quick tap with minimal movement (< 25px, < 300ms)
                 if (dx < 25 && dy < 25 && dt < 300) {
+                    val hitType = hitTestResult.type
+                    // If user tapped directly on an edit text field, guarantee soft keyboard is shown
+                    if (hitType == HitTestResult.EDIT_TEXT_TYPE) {
+                        post {
+                            val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+                            imm?.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT)
+                        }
+                    }
+
                     // Only allow tap-to-toggle HUD when tapping in the center reading zone.
                     // Taps in the top zone (site header, search button, tabs) or bottom zone
                     // (pagination, chapter buttons, footer) must NEVER toggle HUD.
                     val inCenterZoneY = event.y in (height * 0.30f)..(height * 0.70f)
                     val inCenterZoneX = event.x in (width * 0.20f)..(width * 0.80f)
                     if (inCenterZoneY && inCenterZoneX) {
-                        val hitType = hitTestResult.type
                         val isNavigableLink = hitType == HitTestResult.SRC_ANCHOR_TYPE ||
                                               hitType == HitTestResult.SRC_IMAGE_ANCHOR_TYPE ||
                                               hitType == HitTestResult.EDIT_TEXT_TYPE ||
