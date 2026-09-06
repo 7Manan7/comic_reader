@@ -12,22 +12,30 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -46,9 +54,14 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.example.comicreader.data.Bookmark
 import com.example.comicreader.data.BookmarkManager
 import com.example.comicreader.data.HistoryItem
@@ -61,6 +74,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -69,6 +83,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -130,6 +145,8 @@ fun ReaderScreen(
     var showHistorySheet by remember { mutableStateOf(false) }
     var showSettingsSheet by remember { mutableStateOf(false) }
     var showAdBlockDialog by remember { mutableStateOf(false) }
+    var showBraveMenu by remember { mutableStateOf(false) }
+    var showHomeSheet by remember { mutableStateOf(false) }
 
     // History state
     var historyList by remember { mutableStateOf(HistoryManager.getHistory(context)) }
@@ -352,30 +369,20 @@ fun ReaderScreen(
                         shape = RoundedCornerShape(24.dp)
                     )
 
-                    Spacer(modifier = Modifier.width(4.dp))
-
-                    // AdBlock Shield Badge
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(if (AdBlockEngine.isEnabled) Color(0xFF1B5E20) else Color(0xFFB71C1C))
-                            .clickable { showAdBlockDialog = true }
-                            .padding(horizontal = 8.dp, vertical = 6.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "🛡️ $blockedAdCount",
-                            color = Color.White,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-
                     // Refresh Button
                     IconButton(onClick = { webViewRef?.reload() }) {
                         Icon(
                             imageVector = Icons.Default.Refresh,
                             contentDescription = "Reload",
+                            tint = Color.White
+                        )
+                    }
+
+                    // Brave Menu (⋮)
+                    IconButton(onClick = { showBraveMenu = true }) {
+                        Icon(
+                            imageVector = Icons.Default.MoreVert,
+                            contentDescription = "Menu & Settings",
                             tint = Color.White
                         )
                     }
@@ -397,148 +404,44 @@ fun ReaderScreen(
                     .then(if (!isImmersiveFullscreen) Modifier.navigationBarsPadding() else Modifier)
                     .padding(horizontal = 12.dp, vertical = 6.dp)
             ) {
-                // Quick Comic Bookmarks Row
+                // Clean Bottom Navigation Bar (No carousel, no settings clutter)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState())
-                        .padding(bottom = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        .padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceAround,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    bookmarks.forEach { bookmark ->
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(Color(0xFF2E2E38))
-                                .clickable {
-                                    inputUrl = bookmark.url
-                                    webViewRef?.loadUrl(bookmark.url)
-                                }
-                                .padding(horizontal = 10.dp, vertical = 6.dp)
-                        ) {
-                            Text(
-                                text = "${bookmark.icon} ${bookmark.name}",
-                                color = Color(0xFFE0E0E0),
-                                fontSize = 12.sp
-                            )
-                        }
-                    }
-
-                    // "+ Sites" button to open Bookmarks Sheet
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(Color(0xFF1E88E5))
-                            .clickable { showBookmarksSheet = true }
-                            .padding(horizontal = 10.dp, vertical = 6.dp)
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.Add,
-                                contentDescription = "Manage Sites",
-                                tint = Color.White,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "Sites",
-                                color = Color.White,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-
-                    // "History" button to open History Sheet
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(Color(0xFF37474F))
-                            .clickable {
-                                historyList = HistoryManager.getHistory(context)
-                                showHistorySheet = true
-                            }
-                            .padding(horizontal = 10.dp, vertical = 6.dp)
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.History,
-                                contentDescription = "History",
-                                tint = Color.White,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "History",
-                                color = Color.White,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                }
-
-                // Controls Row
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Home Button
-                    IconButton(onClick = {
-                        inputUrl = "https://comix.to/"
-                        webViewRef?.loadUrl("https://comix.to/")
-                    }) {
-                        Icon(Icons.Default.Home, contentDescription = "Home", tint = Color.White)
-                    }
-
-                    // Refresh Rate Badge
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(Color(0xFF1E88E5))
-                            .clickable { showSettingsSheet = true }
-                            .padding(horizontal = 10.dp, vertical = 5.dp)
-                    ) {
-                        Text(
-                            text = "⚡ ${activeRefreshRate.roundToInt()}Hz",
-                            color = Color.White,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold
+                    // Home Button (Opens Quick Sites & Bookmarks Speed-Dial)
+                    IconButton(onClick = { showHomeSheet = true }) {
+                        Icon(
+                            imageVector = Icons.Default.Home,
+                            contentDescription = "Home & Sites",
+                            tint = Color.White
                         )
                     }
 
-                    // Fullscreen / Status Bar Mode Toggle
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(if (isImmersiveFullscreen) Color(0xFF43A047) else Color(0xFF757575))
-                            .clickable {
-                                isImmersiveFullscreen = !isImmersiveFullscreen
-                                onToggleFullscreen(isImmersiveFullscreen)
-                            }
-                            .padding(horizontal = 10.dp, vertical = 5.dp)
+                    // Back Button
+                    IconButton(
+                        onClick = { webViewRef?.let { if (it.canGoBack()) it.goBack() } },
+                        enabled = canGoBack
                     ) {
-                        Text(
-                            text = if (isImmersiveFullscreen) "🔲 Fullscreen" else "🔲 Status Bar",
-                            color = Color.White,
-                            fontSize = 12.sp
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = if (canGoBack) Color.White else Color.Gray
                         )
                     }
 
-                    // Night Invert Filter Toggle
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(if (isNightInvertMode) Color(0xFF673AB7) else Color(0xFF37474F))
-                            .clickable { isNightInvertMode = !isNightInvertMode }
-                            .padding(horizontal = 10.dp, vertical = 5.dp)
+                    // Forward Button
+                    IconButton(
+                        onClick = { webViewRef?.let { if (it.canGoForward()) it.goForward() } },
+                        enabled = canGoForward
                     ) {
-                        Text(
-                            text = if (isNightInvertMode) "🌙 Dark" else "☀️ Normal",
-                            color = Color.White,
-                            fontSize = 12.sp
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                            contentDescription = "Forward",
+                            tint = if (canGoForward) Color.White else Color.Gray
                         )
                     }
 
@@ -547,464 +450,780 @@ fun ReaderScreen(
                         historyList = HistoryManager.getHistory(context)
                         showHistorySheet = true
                     }) {
-                        Icon(Icons.Default.History, contentDescription = "History", tint = Color.White)
-                    }
-
-                    // Reader Settings Button
-                    IconButton(onClick = { showSettingsSheet = true }) {
-                        Icon(Icons.Default.Settings, contentDescription = "Settings", tint = Color.White)
-                    }
-                }
-            }
-        }
-    }
-
-    // AdBlock Info Dialog / Bottom Sheet
-    if (showAdBlockDialog) {
-        ModalBottomSheet(
-            onDismissRequest = { showAdBlockDialog = false },
-            containerColor = Color(0xFF222228),
-            contentColor = Color.White
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(20.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "🛡️ Comic AdBlocker",
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                    Switch(
-                        checked = AdBlockEngine.isEnabled,
-                        onCheckedChange = {
-                            AdBlockEngine.isEnabled = it
-                            webViewRef?.reload()
-                        }
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF2D2D36)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(
-                            text = "Blocked on this page: $blockedAdCount ads & trackers",
-                            color = Color(0xFF81C784),
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Active rules: ${adBlockListsStatus.totalRuleCount} across ${adBlockListsStatus.activeListCount} filter lists",
-                            fontSize = 12.sp,
-                            color = Color(0xFF90CAF9)
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Last updated: ${adBlockListsStatus.formattedLastUpdated}",
-                            fontSize = 11.sp,
-                            color = Color.LightGray
-                        )
-                        adBlockListsStatus.statusMessage?.let { msg ->
-                            Spacer(modifier = Modifier.height(3.dp))
-                            Text(
-                                text = msg,
-                                fontSize = 11.sp,
-                                color = Color(0xFFFFD54F)
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                val currentHost = runCatching { Uri.parse(currentUrl).host }.getOrNull().orEmpty()
-                if (currentHost.isNotEmpty()) {
-                    val isWhitelisted = AdBlockEngine.isWhitelisted(currentHost)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("Whitelist $currentHost", color = Color.White)
-                        Switch(
-                            checked = isWhitelisted,
-                            onCheckedChange = { enable ->
-                                if (enable) AdBlockEngine.addToWhitelist(currentHost)
-                                else AdBlockEngine.removeFromWhitelist(currentHost)
-                                webViewRef?.reload()
-                            }
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                // Primary Refresh & Update Filter Lists Button
-                Button(
-                    onClick = {
-                        coroutineScope.launch {
-                            AdBlockListManager.updateLists(context)
-                        }
-                    },
-                    enabled = !adBlockListsStatus.isUpdating,
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E88E5)),
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp)
-                ) {
-                    if (adBlockListsStatus.isUpdating) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(16.dp),
-                            color = Color.White,
-                            strokeWidth = 2.dp
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Updating Filter Lists...", fontSize = 13.sp, color = Color.White)
-                    } else {
                         Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = "Update Lists",
-                            modifier = Modifier.size(16.dp),
+                            imageVector = Icons.Default.History,
+                            contentDescription = "History",
                             tint = Color.White
                         )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("🔄 Refresh & Update Filter Lists Now", fontSize = 13.sp, color = Color.White)
+                    }
+
+                    // Brave Menu (⋮)
+                    IconButton(onClick = { showBraveMenu = true }) {
+                        Icon(
+                            imageVector = Icons.Default.MoreVert,
+                            contentDescription = "Menu & Settings",
+                            tint = Color.White
+                        )
                     }
                 }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                OutlinedButton(
-                    onClick = {
-                        showAdBlockDialog = false
-                        showSettingsSheet = true
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF64B5F6))
-                ) {
-                    Text("⚙️ Manage 16 Filter Lists (${adBlockListsStatus.activeListCount} active)")
-                }
-
-                Spacer(modifier = Modifier.height(20.dp))
             }
         }
     }
 
-    // Reader Settings Bottom Sheet
-    if (showSettingsSheet) {
-        ModalBottomSheet(
-            onDismissRequest = { showSettingsSheet = false },
-            containerColor = Color(0xFF222228),
-            contentColor = Color.White
+    // Home & Quick Manga Sites Speed-Dial (Opened via Home button)
+    if (showHomeSheet) {
+        Dialog(
+            onDismissRequest = { showHomeSheet = false },
+            properties = DialogProperties(
+                usePlatformDefaultWidth = false,
+                decorFitsSystemWindows = false
+            )
         ) {
-            Column(
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 12.dp)
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.72f))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = { showHomeSheet = false }
+                    )
+                    // Invisible border on up, down, left and right:
+                    .windowInsetsPadding(WindowInsets.safeDrawing)
+                    .padding(start = 20.dp, end = 20.dp, top = 28.dp, bottom = 28.dp),
+                contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = "⚙️ Kuro Reader & Display Settings",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // High Refresh Rate Section
-                Text(
-                    text = "Screen Refresh Rate Optimization",
-                    fontWeight = FontWeight.SemiBold,
-                    color = Color(0xFF64B5F6),
-                    fontSize = 14.sp
-                )
-                Text(
-                    text = "Current Display: ${activeRefreshRate.roundToInt()} Hz | Mode: $selectedRateLabel",
-                    fontSize = 12.sp,
-                    color = Color.Gray
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Refresh Rate Buttons (Auto-Max, 165Hz, 144Hz, 120Hz, 60Hz)
-                Row(
+                Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    val targets = listOf(
-                        "Max (Auto)" to -1f,
-                        "165 Hz" to 165f,
-                        "144 Hz" to 144f,
-                        "120 Hz" to 120f,
-                        "60 Hz" to 60f
-                    )
-
-                    targets.forEach { (label, rate) ->
-                        val isSelected = (rate <= 0f && selectedRateLabel.startsWith("Auto")) ||
-                                (rate > 0f && selectedRateLabel.startsWith("${rate.roundToInt()}"))
-
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(if (isSelected) Color(0xFF1E88E5) else Color(0xFF33333E))
-                                .clickable {
-                                    activity?.let {
-                                        RefreshRateManager.setRefreshRate(it, rate)
-                                    }
-                                }
-                                .padding(horizontal = 12.dp, vertical = 8.dp)
-                        ) {
-                            Text(
-                                text = label,
-                                color = if (isSelected) Color.White else Color.LightGray,
-                                fontSize = 13.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Status Bar / Fullscreen Mode
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
-                        Text("Immersive Fullscreen", color = Color.White)
-                        Text(
-                            "Hides status bar and notch completely for distraction-free comics",
-                            fontSize = 12.sp,
-                            color = Color.Gray
+                        .fillMaxHeight(0.78f)
+                        // Visible border for the menu:
+                        .border(
+                            width = 2.dp,
+                            color = Color(0xFF535A7B),
+                            shape = RoundedCornerShape(24.dp)
                         )
-                    }
-                    Switch(
-                        checked = isImmersiveFullscreen,
-                        onCheckedChange = {
-                            isImmersiveFullscreen = it
-                            onToggleFullscreen(it)
-                        }
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // Volume Keys Scroll
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                        .clip(RoundedCornerShape(24.dp))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = { /* consume click */ }
+                        ),
+                    shape = RoundedCornerShape(24.dp),
+                    color = Color(0xFF141620),
+                    shadowElevation = 24.dp
                 ) {
-                    Column {
-                        Text("Volume Key Scrolling", color = Color.White)
-                        Text(
-                            "Scroll up/down with Volume buttons for one-handed reading",
-                            fontSize = 12.sp,
-                            color = Color.Gray
-                        )
-                    }
-                    Switch(
-                        checked = isVolumeScrollEnabled,
-                        onCheckedChange = { isVolumeScrollEnabled = it }
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // Keep Screen On
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
-                        Text("Keep Screen On", color = Color.White)
-                        Text(
-                            "Prevents screen timeout while reading manga chapters",
-                            fontSize = 12.sp,
-                            color = Color.Gray
-                        )
-                    }
-                    Switch(
-                        checked = isKeepScreenOn,
-                        onCheckedChange = {
-                            isKeepScreenOn = it
-                            onToggleKeepScreenOn(it)
-                        }
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Zoom Level Controls
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Page Zoom: $webTextZoom%", color = Color.White)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TextButton(onClick = { if (webTextZoom > 75) webTextZoom -= 25 }) {
-                            Text("-25%", color = Color(0xFF64B5F6))
-                        }
-                        TextButton(onClick = { webTextZoom = 100 }) {
-                            Text("100%", color = Color(0xFF64B5F6))
-                        }
-                        TextButton(onClick = { if (webTextZoom < 250) webTextZoom += 25 }) {
-                            Text("+25%", color = Color(0xFF64B5F6))
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // AdBlock Filter Lists Section (16 Lists across 3 Categories)
-                Text(
-                    text = "🛡️ AdBlock & Security Filter Lists (16 Lists)",
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF64B5F6),
-                    fontSize = 15.sp
-                )
-                Text(
-                    text = "Active Rules: ${adBlockListsStatus.totalRuleCount} | Enabled Lists: ${adBlockListsStatus.activeListCount}/16",
-                    fontSize = 12.sp,
-                    color = Color.LightGray
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Group lists by Category
-                FilterListCategory.entries.forEach { category ->
-                    val categoryLists = AdBlockListManager.ALL_LISTS.filter { it.category == category }
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF2E2E36)),
-                        shape = RoundedCornerShape(10.dp)
+                    Column(
+                        modifier = Modifier.fillMaxSize()
                     ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            Text(
-                                text = category.title,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White,
-                                fontSize = 13.sp
-                            )
-                            Text(
-                                text = category.subtitle,
-                                fontSize = 11.sp,
-                                color = Color.Gray
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
+                        // Fixed Header
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color(0xFF1D202D))
+                                .padding(horizontal = 18.dp, vertical = 14.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(
+                                    text = "🏠 Quick Manga Sites",
+                                    fontSize = 17.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                                Text(
+                                    text = "Tap any comic site to start reading",
+                                    fontSize = 11.sp,
+                                    color = Color.Gray
+                                )
+                            }
+                            IconButton(
+                                onClick = { showHomeSheet = false },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.LightGray)
+                            }
+                        }
 
-                            categoryLists.forEach { listDef ->
-                                val itemStatus = adBlockListsStatus.listItems[listDef.id]
-                                val isChecked = itemStatus?.isEnabled ?: listDef.isEnabledByDefault
-                                val ruleCount = itemStatus?.ruleCount ?: 0
+                        HorizontalDivider(color = Color(0xFF2B2E42), thickness = 1.dp)
 
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 3.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                                .verticalScroll(rememberScrollState())
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            bookmarks.forEach { bookmark ->
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1F2230)),
+                                    shape = RoundedCornerShape(12.dp),
+                                    border = BorderStroke(1.dp, Color(0xFF2B2E42))
                                 ) {
-                                    Column(
+                                    Row(
                                         modifier = Modifier
-                                            .weight(1f)
-                                            .padding(end = 8.dp)
+                                            .fillMaxWidth()
+                                            .clickable {
+                                                inputUrl = bookmark.url
+                                                webViewRef?.loadUrl(bookmark.url)
+                                                showHomeSheet = false
+                                            }
+                                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
-                                        Text(
-                                            text = listDef.name,
-                                            color = Color.White,
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Medium
-                                        )
-                                        Text(
-                                            text = if (isChecked && ruleCount > 0) "$ruleCount rules • ${listDef.description}" else listDef.description,
-                                            color = if (isChecked && ruleCount > 0) Color(0xFF81C784) else Color.Gray,
-                                            fontSize = 10.sp,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
-
-                                    Switch(
-                                        checked = isChecked,
-                                        onCheckedChange = { checked ->
-                                            coroutineScope.launch {
-                                                AdBlockListManager.toggleList(context, listDef.id, checked)
+                                        Row(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .padding(end = 8.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = bookmark.icon,
+                                                fontSize = 20.sp,
+                                                modifier = Modifier.padding(end = 12.dp)
+                                            )
+                                            Column {
+                                                Text(
+                                                    text = bookmark.name,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color.White,
+                                                    fontSize = 14.sp
+                                                )
+                                                Text(
+                                                    text = bookmark.url,
+                                                    color = Color(0xFF90CAF9),
+                                                    fontSize = 11.sp,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
                                             }
                                         }
+                                        Text(
+                                            text = "Open →",
+                                            color = Color(0xFF64B5F6),
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(4.dp))
+
+                            OutlinedButton(
+                                onClick = {
+                                    showHomeSheet = false
+                                    showBookmarksSheet = true
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF64B5F6)),
+                                border = BorderStroke(1.dp, Color(0xFF3F445A))
+                            ) {
+                                Icon(
+                                    Icons.Default.Add,
+                                    contentDescription = "Manage / Add Sites",
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Manage / Add Custom Sites", fontSize = 13.sp)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Brave Browser-Style Unified Menu (All settings visible, safe boundary borders)
+    if (showBraveMenu || showSettingsSheet || showAdBlockDialog) {
+        Dialog(
+            onDismissRequest = {
+                showBraveMenu = false
+                showSettingsSheet = false
+                showAdBlockDialog = false
+            },
+            properties = DialogProperties(
+                usePlatformDefaultWidth = false,
+                decorFitsSystemWindows = false
+            )
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.72f))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = {
+                            showBraveMenu = false
+                            showSettingsSheet = false
+                            showAdBlockDialog = false
+                        }
+                    )
+                    // Invisible border on up, down, left and right:
+                    .windowInsetsPadding(WindowInsets.safeDrawing)
+                    .padding(start = 20.dp, end = 20.dp, top = 28.dp, bottom = 28.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .fillMaxHeight(0.86f)
+                        // Visible high-contrast border for the menu:
+                        .border(
+                            width = 2.dp,
+                            color = Color(0xFF535A7B),
+                            shape = RoundedCornerShape(24.dp)
+                        )
+                        .clip(RoundedCornerShape(24.dp))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = { /* consume click */ }
+                        ),
+                    shape = RoundedCornerShape(24.dp),
+                    color = Color(0xFF141620),
+                    shadowElevation = 24.dp
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        // Fixed Header
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color(0xFF1D202D))
+                                .padding(horizontal = 18.dp, vertical = 14.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "🦁 Kuro Menu",
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(if (AdBlockEngine.isEnabled) Color(0xFF1B5E20) else Color(0xFFB71C1C))
+                                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                                ) {
+                                    Text(
+                                        text = "🛡️ $blockedAdCount blocked",
+                                        color = Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold
                                     )
                                 }
                             }
+
+                            IconButton(
+                                onClick = {
+                                    showBraveMenu = false
+                                    showSettingsSheet = false
+                                    showAdBlockDialog = false
+                                },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Close Menu",
+                                    tint = Color.LightGray
+                                )
+                            }
+                        }
+
+                        HorizontalDivider(color = Color(0xFF2B2E42), thickness = 1.dp)
+
+                        // Scrollable Content Column (Every setting is visible here)
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                                .verticalScroll(rememberScrollState())
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            // 1. Quick Action Bar (Brave style)
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFF1F2230)),
+                                shape = RoundedCornerShape(14.dp),
+                                border = BorderStroke(1.dp, Color(0xFF2E3246))
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.SpaceEvenly,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    // Back
+                                    IconButton(
+                                        onClick = {
+                                            webViewRef?.let { if (it.canGoBack()) it.goBack() }
+                                            showBraveMenu = false
+                                        },
+                                        enabled = canGoBack
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                            contentDescription = "Back",
+                                            tint = if (canGoBack) Color.White else Color.DarkGray
+                                        )
+                                    }
+
+                                    // Forward
+                                    IconButton(
+                                        onClick = {
+                                            webViewRef?.let { if (it.canGoForward()) it.goForward() }
+                                            showBraveMenu = false
+                                        },
+                                        enabled = canGoForward
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                            contentDescription = "Forward",
+                                            tint = if (canGoForward) Color.White else Color.DarkGray
+                                        )
+                                    }
+
+                                    // Reload
+                                    IconButton(
+                                        onClick = {
+                                            webViewRef?.reload()
+                                            showBraveMenu = false
+                                        }
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Refresh,
+                                            contentDescription = "Reload",
+                                            tint = Color.White
+                                        )
+                                    }
+
+                                    // Star / Bookmark current page
+                                    val isCurrentBookmarked = bookmarks.any { it.url.trimEnd('/') == currentUrl.trimEnd('/') }
+                                    IconButton(
+                                        onClick = {
+                                            val currentHost = runCatching { Uri.parse(currentUrl).host }.getOrNull() ?: currentUrl
+                                            val title = pageTitle.ifBlank { currentHost }
+                                            if (isCurrentBookmarked) {
+                                                val existing = bookmarks.find { it.url.trimEnd('/') == currentUrl.trimEnd('/') }
+                                                if (existing != null) {
+                                                    bookmarks = BookmarkManager.removeBookmark(context, existing.id)
+                                                }
+                                            } else {
+                                                bookmarks = BookmarkManager.addBookmark(context, title, currentUrl, "⭐")
+                                            }
+                                        }
+                                    ) {
+                                        Icon(
+                                            imageVector = if (isCurrentBookmarked) Icons.Default.Star else Icons.Default.StarBorder,
+                                            contentDescription = "Bookmark Page",
+                                            tint = if (isCurrentBookmarked) Color(0xFFFFD54F) else Color.White
+                                        )
+                                    }
+
+                                    // Dark / OLED Invert toggle
+                                    IconButton(
+                                        onClick = { isNightInvertMode = !isNightInvertMode }
+                                    ) {
+                                        Text(
+                                            text = if (isNightInvertMode) "🌙" else "☀️",
+                                            fontSize = 18.sp
+                                        )
+                                    }
+                                }
+                            }
+
+                            // 2. Refresh Rate Selector (up to 165Hz)
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E212E)),
+                                shape = RoundedCornerShape(14.dp),
+                                border = BorderStroke(1.dp, Color(0xFF2B2E42))
+                            ) {
+                                Column(modifier = Modifier.padding(14.dp)) {
+                                    Text(
+                                        text = "⚡ Screen Refresh Rate",
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF64B5F6),
+                                        fontSize = 14.sp
+                                    )
+                                    Text(
+                                        text = "Current: ${activeRefreshRate.roundToInt()} Hz • Selected: $selectedRateLabel",
+                                        fontSize = 11.sp,
+                                        color = Color.Gray
+                                    )
+                                    Spacer(modifier = Modifier.height(10.dp))
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        val targets = listOf(
+                                            "Auto" to -1f,
+                                            "165Hz" to 165f,
+                                            "144Hz" to 144f,
+                                            "120Hz" to 120f,
+                                            "60Hz" to 60f
+                                        )
+                                        targets.forEach { (label, rate) ->
+                                            val isSelected = (rate <= 0f && selectedRateLabel.startsWith("Auto")) ||
+                                                    (rate > 0f && selectedRateLabel.startsWith("${rate.roundToInt()}"))
+
+                                            Box(
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(10.dp))
+                                                    .background(if (isSelected) Color(0xFF1E88E5) else Color(0xFF282B3B))
+                                                    .clickable {
+                                                        activity?.let {
+                                                            RefreshRateManager.setRefreshRate(it, rate)
+                                                        }
+                                                    }
+                                                    .padding(horizontal = 10.dp, vertical = 7.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    text = label,
+                                                    color = if (isSelected) Color.White else Color.LightGray,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // 3. Kuro Shields & AdBlock Engine (16 Lists)
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E212E)),
+                                shape = RoundedCornerShape(14.dp),
+                                border = BorderStroke(1.dp, Color(0xFF2B2E42))
+                            ) {
+                                Column(modifier = Modifier.padding(14.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                            Text(
+                                                text = "🛡️ Kuro Shields",
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color.White,
+                                                fontSize = 14.sp
+                                            )
+                                            Text(
+                                                text = "${adBlockListsStatus.activeListCount}/16 lists active • ${adBlockListsStatus.totalRuleCount} rules",
+                                                fontSize = 11.sp,
+                                                color = Color(0xFF81C784)
+                                            )
+                                        }
+                                        Switch(
+                                            checked = AdBlockEngine.isEnabled,
+                                            onCheckedChange = {
+                                                AdBlockEngine.isEnabled = it
+                                                webViewRef?.reload()
+                                            }
+                                        )
+                                    }
+
+                                    // Whitelist toggle for current host
+                                    val currentHost = runCatching { Uri.parse(currentUrl).host }.getOrNull().orEmpty()
+                                    if (currentHost.isNotEmpty()) {
+                                        Spacer(modifier = Modifier.height(10.dp))
+                                        val isWhitelisted = AdBlockEngine.isWhitelisted(currentHost)
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = "Whitelist $currentHost",
+                                                color = Color.LightGray,
+                                                fontSize = 12.sp,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.weight(1f).padding(end = 8.dp)
+                                            )
+                                            Switch(
+                                                checked = isWhitelisted,
+                                                onCheckedChange = { enable ->
+                                                    if (enable) AdBlockEngine.addToWhitelist(currentHost)
+                                                    else AdBlockEngine.removeFromWhitelist(currentHost)
+                                                    webViewRef?.reload()
+                                                }
+                                            )
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(10.dp))
+
+                                    // Refresh Filter Lists Button
+                                    Button(
+                                        onClick = {
+                                            coroutineScope.launch {
+                                                AdBlockListManager.updateLists(context)
+                                            }
+                                        },
+                                        enabled = !adBlockListsStatus.isUpdating,
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E88E5)),
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(10.dp)
+                                    ) {
+                                        if (adBlockListsStatus.isUpdating) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(14.dp),
+                                                color = Color.White,
+                                                strokeWidth = 2.dp
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("Updating Lists...", fontSize = 12.sp, color = Color.White)
+                                        } else {
+                                            Icon(
+                                                imageVector = Icons.Default.Refresh,
+                                                contentDescription = "Update Lists",
+                                                modifier = Modifier.size(14.dp),
+                                                tint = Color.White
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("🔄 Update 16 Filter Lists Now", fontSize = 12.sp, color = Color.White)
+                                        }
+                                    }
+
+                                    // Category list toggles expander
+                                    var showFilterListDetails by remember { mutableStateOf(false) }
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    TextButton(
+                                        onClick = { showFilterListDetails = !showFilterListDetails },
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text(
+                                            text = if (showFilterListDetails) "Hide Filter Lists ▲" else "View / Toggle 16 Filter Lists ▼",
+                                            color = Color(0xFF64B5F6),
+                                            fontSize = 12.sp
+                                        )
+                                    }
+
+                                    if (showFilterListDetails) {
+                                        FilterListCategory.entries.forEach { category ->
+                                            val categoryLists = AdBlockListManager.ALL_LISTS.filter { it.category == category }
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            Text(
+                                                text = category.title,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF90CAF9),
+                                                fontSize = 12.sp
+                                            )
+                                            categoryLists.forEach { listDef ->
+                                                val itemStatus = adBlockListsStatus.listItems[listDef.id]
+                                                val isChecked = itemStatus?.isEnabled ?: listDef.isEnabledByDefault
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(vertical = 2.dp),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Text(
+                                                        text = listDef.name,
+                                                        color = Color.White,
+                                                        fontSize = 11.sp,
+                                                        modifier = Modifier.weight(1f).padding(end = 8.dp)
+                                                    )
+                                                    Switch(
+                                                        checked = isChecked,
+                                                        onCheckedChange = { checked ->
+                                                            coroutineScope.launch {
+                                                                AdBlockListManager.toggleList(context, listDef.id, checked)
+                                                            }
+                                                        }
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // 4. Reading Controls & Toggles
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E212E)),
+                                shape = RoundedCornerShape(14.dp),
+                                border = BorderStroke(1.dp, Color(0xFF2B2E42))
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(14.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    // Immersive Fullscreen
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                            Text("🔲 Immersive Fullscreen", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                            Text("Hides status bar and cutouts completely", fontSize = 11.sp, color = Color.Gray)
+                                        }
+                                        Switch(
+                                            checked = isImmersiveFullscreen,
+                                            onCheckedChange = {
+                                                isImmersiveFullscreen = it
+                                                onToggleFullscreen(it)
+                                            }
+                                        )
+                                    }
+
+                                    // Night OLED Invert
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                            Text("🌙 OLED Dark / Invert", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                            Text("Inverts white web pages for dark rooms", fontSize = 11.sp, color = Color.Gray)
+                                        }
+                                        Switch(
+                                            checked = isNightInvertMode,
+                                            onCheckedChange = { isNightInvertMode = it }
+                                        )
+                                    }
+
+                                    // Volume Key Scrolling
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                            Text("🔊 Volume Button Scrolling", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                            Text("Turn pages with hardware volume rocker", fontSize = 11.sp, color = Color.Gray)
+                                        }
+                                        Switch(
+                                            checked = isVolumeScrollEnabled,
+                                            onCheckedChange = { isVolumeScrollEnabled = it }
+                                        )
+                                    }
+
+                                    // Keep Screen Awake
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                            Text("💡 Keep Screen Awake", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                            Text("Prevents display sleep while reading chapters", fontSize = 11.sp, color = Color.Gray)
+                                        }
+                                        Switch(
+                                            checked = isKeepScreenOn,
+                                            onCheckedChange = {
+                                                isKeepScreenOn = it
+                                                onToggleKeepScreenOn(it)
+                                            }
+                                        )
+                                    }
+
+                                    // Page Zoom
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                            Text("🔍 Page Zoom", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                            Text("$webTextZoom%", color = Color(0xFF64B5F6), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .background(Color(0xFF282B3B))
+                                                    .clickable { if (webTextZoom > 75) webTextZoom -= 25 }
+                                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                                            ) {
+                                                Text("-25%", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                            }
+                                            Box(
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .background(if (webTextZoom == 100) Color(0xFF1E88E5) else Color(0xFF282B3B))
+                                                    .clickable { webTextZoom = 100 }
+                                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                                            ) {
+                                                Text("100%", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                            }
+                                            Box(
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .background(Color(0xFF282B3B))
+                                                    .clickable { if (webTextZoom < 250) webTextZoom += 25 }
+                                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                                            ) {
+                                                Text("+25%", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // 5. Quick Navigation Links (Bookmarks, History)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = {
+                                        showBraveMenu = false
+                                        showBookmarksSheet = true
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF64B5F6)),
+                                    border = BorderStroke(1.dp, Color(0xFF3F445A))
+                                ) {
+                                    Icon(Icons.Default.Bookmark, contentDescription = "Bookmarks", modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Sites", fontSize = 12.sp)
+                                }
+
+                                OutlinedButton(
+                                    onClick = {
+                                        showBraveMenu = false
+                                        historyList = HistoryManager.getHistory(context)
+                                        showHistorySheet = true
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF64B5F6)),
+                                    border = BorderStroke(1.dp, Color(0xFF3F445A))
+                                ) {
+                                    Icon(Icons.Default.History, contentDescription = "History", modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("History", fontSize = 12.sp)
+                                }
+                            }
                         }
                     }
                 }
-
-                Spacer(modifier = Modifier.height(6.dp))
-
-                Text(
-                    "Last updated: ${adBlockListsStatus.formattedLastUpdated}",
-                    fontSize = 11.sp,
-                    color = Color.LightGray
-                )
-                adBlockListsStatus.statusMessage?.let { msg ->
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        msg,
-                        fontSize = 11.sp,
-                        color = Color(0xFFFFD54F)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Button(
-                    onClick = {
-                        coroutineScope.launch {
-                            AdBlockListManager.updateLists(context)
-                        }
-                    },
-                    enabled = !adBlockListsStatus.isUpdating,
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E88E5)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    if (adBlockListsStatus.isUpdating) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(16.dp),
-                            color = Color.White,
-                            strokeWidth = 2.dp
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Updating Filter Lists...", fontSize = 13.sp, color = Color.White)
-                    } else {
-                        Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = "Update Lists",
-                            modifier = Modifier.size(16.dp),
-                            tint = Color.White
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Update Lists Now", fontSize = 13.sp, color = Color.White)
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(24.dp))
             }
         }
     }
@@ -1022,6 +1241,7 @@ fun ReaderScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .navigationBarsPadding()
                     .padding(horizontal = 20.dp, vertical = 12.dp)
                     .verticalScroll(rememberScrollState())
             ) {
@@ -1272,6 +1492,7 @@ fun ReaderScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .navigationBarsPadding()
                     .padding(horizontal = 20.dp, vertical = 12.dp)
             ) {
                 // Header
