@@ -20,6 +20,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -68,6 +69,8 @@ import com.example.comicreader.data.Bookmark
 import com.example.comicreader.data.BookmarkManager
 import com.example.comicreader.data.HistoryItem
 import com.example.comicreader.data.HistoryManager
+import com.example.comicreader.data.SessionManager
+import com.example.comicreader.data.AppPreferences
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -133,9 +136,15 @@ fun ReaderScreen(
     val coroutineScope = rememberCoroutineScope()
     val adBlockListsStatus by AdBlockListManager.status.collectAsState()
 
-    // Web navigation state (Default to comix.to)
-    var currentUrl by remember { mutableStateOf("https://comix.to/") }
-    var inputUrl by remember { mutableStateOf("https://comix.to/") }
+    // Session & Startup state
+    var isRestoreLastPageEnabled by remember {
+        mutableStateOf(SessionManager.isRestoreLastPageEnabled(context))
+    }
+    val initialUrl = remember { SessionManager.getInitialUrl(context) }
+
+    // Web navigation state
+    var currentUrl by remember { mutableStateOf(initialUrl) }
+    var inputUrl by remember { mutableStateOf(initialUrl) }
     var pageTitle by remember { mutableStateOf("Kuro Reader") }
     var pageProgress by remember { mutableIntStateOf(0) }
     var canGoBack by remember { mutableStateOf(false) }
@@ -155,13 +164,13 @@ fun ReaderScreen(
     var historyList by remember { mutableStateOf(HistoryManager.getHistory(context)) }
     var historySearchQuery by remember { mutableStateOf("") }
 
-    // Settings state (Default to false: standard browser mode, switch to fullscreen only on scroll down)
-    var isImmersiveFullscreen by remember { mutableStateOf(false) }
-    var isTransparentStatusBar by remember { mutableStateOf(false) }
-    var isNightInvertMode by remember { mutableStateOf(false) }
-    var isKeepScreenOn by remember { mutableStateOf(true) }
-    var isVolumeScrollEnabled by remember { mutableStateOf(true) }
-    var webTextZoom by remember { mutableIntStateOf(100) }
+    // Settings state (Persisted across restarts via AppPreferences)
+    var isImmersiveFullscreen by remember { mutableStateOf(AppPreferences.isImmersiveFullscreen(context)) }
+    var isNightInvertMode by remember { mutableStateOf(AppPreferences.isNightInvertMode(context)) }
+    var isKeepScreenOn by remember { mutableStateOf(AppPreferences.isKeepScreenOn(context)) }
+    var isVolumeScrollEnabled by remember { mutableStateOf(AppPreferences.isVolumeScrollEnabled(context)) }
+    var webTextZoom by remember { mutableIntStateOf(AppPreferences.getWebTextZoom(context)) }
+    var isUrlInputFocused by remember { mutableStateOf(false) }
 
     // Refresh rate state
     val activeRefreshRate by RefreshRateManager.currentRefreshRate.collectAsState()
@@ -247,7 +256,8 @@ fun ReaderScreen(
                         onValueChange = { inputUrl = it },
                         modifier = Modifier
                             .weight(1f)
-                            .height(50.dp),
+                            .height(50.dp)
+                            .onFocusChanged { isUrlInputFocused = it.isFocused },
                         textStyle = MaterialTheme.typography.bodyMedium.copy(color = Color.White),
                         singleLine = true,
                         placeholder = {
@@ -334,30 +344,37 @@ fun ReaderScreen(
                             if (newUrl.startsWith("http")) {
                                 val title = pageTitle.ifBlank { newUrl }
                                 historyList = HistoryManager.addHistoryEntry(context, title, newUrl)
+                                SessionManager.saveLastUrl(context, newUrl)
                             }
                         }
 
                         onScrollDirectionChanged = { isScrollingDown ->
                             if (isScrollingDown) {
-                                // User scrolled down: switch to fullscreen reading mode
-                                if (isHudVisible || !isImmersiveFullscreen) {
+                                // User scrolled down: hide browser HUD for reading
+                                if (isHudVisible) {
                                     isHudVisible = false
-                                    isImmersiveFullscreen = true
+                                }
+                                if (!isImmersiveFullscreen) {
+                                    onToggleFullscreen(true)
                                 }
                             } else {
                                 // User scrolled up or reached top: restore basic browser UI
-                                if (!isHudVisible || isImmersiveFullscreen) {
+                                if (!isHudVisible) {
                                     isHudVisible = true
-                                    isImmersiveFullscreen = false
+                                }
+                                if (!isImmersiveFullscreen) {
+                                    onToggleFullscreen(false)
                                 }
                             }
                         }
 
                         onSingleTap = {
-                            // Toggle UI HUD and fullscreen mode on tap
+                            // Toggle UI HUD on tap
                             val showBrowser = !isHudVisible
                             isHudVisible = showBrowser
-                            isImmersiveFullscreen = !showBrowser
+                            if (!isImmersiveFullscreen) {
+                                onToggleFullscreen(!showBrowser)
+                            }
                         }
 
                         onBlockedAdCountChanged = { count ->
@@ -365,7 +382,10 @@ fun ReaderScreen(
                         }
 
                         onTouchFocus = {
-                            focusManager.clearFocus()
+                            if (isUrlInputFocused) {
+                                focusManager.clearFocus()
+                                isUrlInputFocused = false
+                            }
                         }
 
                         loadUrl(currentUrl)
@@ -837,7 +857,11 @@ fun ReaderScreen(
 
                                     // Dark / OLED Invert toggle
                                     IconButton(
-                                        onClick = { isNightInvertMode = !isNightInvertMode }
+                                        onClick = {
+                                            val newMode = !isNightInvertMode
+                                            isNightInvertMode = newMode
+                                            AppPreferences.setNightInvertMode(context, newMode)
+                                        }
                                     ) {
                                         Text(
                                             text = if (isNightInvertMode) "🌙" else "☀️",
@@ -937,6 +961,7 @@ fun ReaderScreen(
                                             checked = AdBlockEngine.isEnabled,
                                             onCheckedChange = {
                                                 AdBlockEngine.isEnabled = it
+                                                AppPreferences.setAdBlockEnabled(context, it)
                                                 webViewRef?.reload()
                                             }
                                         )
@@ -1085,6 +1110,7 @@ fun ReaderScreen(
                                             checked = isImmersiveFullscreen,
                                             onCheckedChange = {
                                                 isImmersiveFullscreen = it
+                                                AppPreferences.setImmersiveFullscreen(context, it)
                                                 onToggleFullscreen(it)
                                             }
                                         )
@@ -1102,7 +1128,10 @@ fun ReaderScreen(
                                         }
                                         Switch(
                                             checked = isNightInvertMode,
-                                            onCheckedChange = { isNightInvertMode = it }
+                                            onCheckedChange = {
+                                                isNightInvertMode = it
+                                                AppPreferences.setNightInvertMode(context, it)
+                                            }
                                         )
                                     }
 
@@ -1121,6 +1150,7 @@ fun ReaderScreen(
                                             onCheckedChange = {
                                                 isVolumeScrollEnabled = it
                                                 onToggleVolumeScroll(it)
+                                                AppPreferences.setVolumeScrollEnabled(context, it)
                                             }
                                         )
                                     }
@@ -1140,6 +1170,26 @@ fun ReaderScreen(
                                             onCheckedChange = {
                                                 isKeepScreenOn = it
                                                 onToggleKeepScreenOn(it)
+                                                AppPreferences.setKeepScreenOn(context, it)
+                                            }
+                                        )
+                                    }
+
+                                    // Restore Last Visited Page on Startup
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                            Text("📖 Restore Last Visited Page", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                            Text("Reopen last comic/chapter when app restarts", fontSize = 11.sp, color = Color.Gray)
+                                        }
+                                        Switch(
+                                            checked = isRestoreLastPageEnabled,
+                                            onCheckedChange = { enabled ->
+                                                isRestoreLastPageEnabled = enabled
+                                                SessionManager.setRestoreLastPageEnabled(context, enabled)
                                             }
                                         )
                                     }
@@ -1162,7 +1212,12 @@ fun ReaderScreen(
                                                 modifier = Modifier
                                                     .clip(RoundedCornerShape(8.dp))
                                                     .background(Color(0xFF282B3B))
-                                                    .clickable { if (webTextZoom > 75) webTextZoom -= 25 }
+                                                    .clickable {
+                                                        if (webTextZoom > 75) {
+                                                            webTextZoom -= 25
+                                                            AppPreferences.setWebTextZoom(context, webTextZoom)
+                                                        }
+                                                    }
                                                     .padding(horizontal = 10.dp, vertical = 6.dp)
                                             ) {
                                                 Text("-25%", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
@@ -1171,7 +1226,10 @@ fun ReaderScreen(
                                                 modifier = Modifier
                                                     .clip(RoundedCornerShape(8.dp))
                                                     .background(if (webTextZoom == 100) Color(0xFF1E88E5) else Color(0xFF282B3B))
-                                                    .clickable { webTextZoom = 100 }
+                                                    .clickable {
+                                                        webTextZoom = 100
+                                                        AppPreferences.setWebTextZoom(context, 100)
+                                                    }
                                                     .padding(horizontal = 10.dp, vertical = 6.dp)
                                             ) {
                                                 Text("100%", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
@@ -1180,7 +1238,12 @@ fun ReaderScreen(
                                                 modifier = Modifier
                                                     .clip(RoundedCornerShape(8.dp))
                                                     .background(Color(0xFF282B3B))
-                                                    .clickable { if (webTextZoom < 250) webTextZoom += 25 }
+                                                    .clickable {
+                                                        if (webTextZoom < 250) {
+                                                            webTextZoom += 25
+                                                            AppPreferences.setWebTextZoom(context, webTextZoom)
+                                                        }
+                                                    }
                                                     .padding(horizontal = 10.dp, vertical = 6.dp)
                                             ) {
                                                 Text("+25%", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)

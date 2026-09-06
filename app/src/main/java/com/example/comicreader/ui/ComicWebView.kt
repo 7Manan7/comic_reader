@@ -66,7 +66,7 @@ class ComicWebView @JvmOverloads constructor(
                     webView.requestFocusFromTouch()
                 }
                 val imm = webView.context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
-                imm?.showSoftInput(webView, InputMethodManager.SHOW_IMPLICIT)
+                imm?.showSoftInput(webView, 0)
             }
         }
     }
@@ -199,6 +199,11 @@ class ComicWebView @JvmOverloads constructor(
 
                 onBlockedAdCountChanged?.invoke(AdBlockEngine.getBlockedCount())
             }
+
+            override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
+                super.doUpdateVisitedHistory(view, url, isReload)
+                url?.let { onUrlChanged?.invoke(it) }
+            }
         }
 
         webChromeClient = object : WebChromeClient() {
@@ -239,11 +244,15 @@ class ComicWebView @JvmOverloads constructor(
                         targetView: WebView?,
                         request: WebResourceRequest?
                     ): Boolean {
-                        val targetUri = request?.url ?: return true
+                        val targetUri = request?.url ?: run {
+                            targetView?.destroy()
+                            return true
+                        }
                         val targetUrl = targetUri.toString()
 
                         if (AdBlockEngine.isDangerousRedirectScheme(targetUrl) || AdBlockEngine.isAd(targetUri, currentHost)) {
                             post { onBlockedAdCountChanged?.invoke(AdBlockEngine.getBlockedCount()) }
+                            targetView?.destroy()
                             return true
                         }
 
@@ -253,6 +262,7 @@ class ComicWebView @JvmOverloads constructor(
                         } else if (!AdBlockEngine.isAd(targetUri, currentHost)) {
                             this@ComicWebView.loadUrl(targetUrl)
                         }
+                        targetView?.destroy()
                         return true
                     }
                 }
@@ -295,7 +305,7 @@ class ComicWebView @JvmOverloads constructor(
                     if (hitType == HitTestResult.EDIT_TEXT_TYPE) {
                         post {
                             val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
-                            imm?.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT)
+                            imm?.showSoftInput(this, 0)
                         }
                     }
 
@@ -358,7 +368,7 @@ class ComicWebView @JvmOverloads constructor(
                     if (!filter) {
                         filter = document.createElement('style');
                         filter.id = 'comic-reader-invert-filter';
-                        filter.innerHTML = 'html { filter: invert(0.9) hue-rotate(180deg) !important; background-color: #111 !important; } img, video { filter: invert(1.1) hue-rotate(180deg) contrast(1.05) !important; }';
+                        filter.innerHTML = 'html { filter: invert(0.9) hue-rotate(180deg) !important; background-color: #111 !important; } img, video, canvas, picture { filter: invert(1.1) hue-rotate(180deg) contrast(1.05) !important; }';
                         (document.head || document.documentElement).appendChild(filter);
                     }
                 })();

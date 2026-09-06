@@ -237,7 +237,7 @@ object AdBlockEngine {
         val host = extractHost(lowerUrl) ?: return false
 
         // Check if user explicitly whitelisted this domain
-        if (whitelistedDomains.any { host.contains(it) }) {
+        if (whitelistedDomains.any { wl -> host == wl || host.endsWith(".$wl") }) {
             return false
         }
 
@@ -248,8 +248,8 @@ object AdBlockEngine {
 
         // Domain matching via fast suffix lookups
         if (matchesDomainSuffix(host, activeBlockedDomains)) {
-            // Safeguard: do not block the active comic website domain itself
-            if (currentHost != null && (host == currentHost || host.endsWith(".$currentHost"))) {
+            // Safeguard: do not block the active comic website domain itself or its asset subdomains
+            if (isSameFirstPartyHost(host, currentHost)) {
                 return false
             }
             blockedAdsCounter.incrementAndGet()
@@ -259,7 +259,7 @@ object AdBlockEngine {
         // Path pattern matching (strictly for non-first-party or known ad endpoints)
         for (pattern in activePathPatterns) {
             if (lowerUrl.contains(pattern)) {
-                if (currentHost != null && (host == currentHost || host.endsWith(".$currentHost"))) {
+                if (isSameFirstPartyHost(host, currentHost)) {
                     // Even if on same domain, only block if explicitly in core ad paths
                     if (!coreBlockedPathPatterns.any { lowerUrl.contains(it) }) {
                         continue
@@ -271,6 +271,13 @@ object AdBlockEngine {
         }
 
         return false
+    }
+
+    private fun isSameFirstPartyHost(host: String, currentHost: String?): Boolean {
+        if (currentHost.isNullOrBlank()) return false
+        val h = host.lowercase(Locale.ROOT).removePrefix("www.")
+        val c = currentHost.lowercase(Locale.ROOT).removePrefix("www.")
+        return h == c || h.endsWith(".$c") || c.endsWith(".$h")
     }
 
     /**
@@ -357,6 +364,14 @@ object AdBlockEngine {
     }
 
     /**
+     * Loads persisted settings and whitelist from SharedPreferences.
+     */
+    fun loadSettings(context: android.content.Context) {
+        loadWhitelist(context)
+        isEnabled = com.example.comicreader.data.AppPreferences.isAdBlockEnabled(context)
+    }
+
+    /**
      * Loads persisted whitelist from SharedPreferences.
      */
     fun loadWhitelist(context: android.content.Context) {
@@ -405,11 +420,12 @@ object AdBlockEngine {
                 extraSelectors.append(sel).append(",\n")
             }
         }
+        val safeSelectors = extraSelectors.toString().replace("`", "").replace("\${", "")
 
         return """
         (function() {
             var css = `
-                $extraSelectors
+                $safeSelectors
                 .adsbygoogle,
                 [id^='ad_'],
                 [id*='-ad-'],

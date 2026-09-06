@@ -105,7 +105,8 @@ app/src/main/java/com/example/comicreader/
 │   └── AdBlockListManager.kt     # Multi-list downloading, GZIP extraction, 16 filter lists
 ├── data/
 │   ├── BookmarkManager.kt        # Persistent bookmarks (Comix, MangaFreak, custom sites)
-│   └── HistoryManager.kt         # Browsing & reading history storage
+│   ├── HistoryManager.kt         # Browsing & reading history storage
+│   └── SessionManager.kt         # Last visited page persistence & startup session restoration
 ├── display/
 │   └── RefreshRateManager.kt     # 60/90/120/144/165Hz display mode detection & locking
 ├── theme/
@@ -119,6 +120,7 @@ app/src/main/java/com/example/comicreader/
 
 ## 💡 5. Important Architecture Decisions
 
+- **Restore Last Visited Page**: Managed by `SessionManager`. Every time a valid HTTP/HTTPS page is navigated to, its URL is automatically persisted. On app startup/restart, if "Restore Last Visited Page" is enabled (enabled by default), Kuro Reader automatically re-opens the exact comic chapter/page where the user left off. Can be toggled on/off in the Kuro Menu (⋮).
 - **HUD Tap Zones**: To prevent taps on website elements (like search buttons, logos, tabs, or chapter pagination) from accidentally toggling the reader HUD, `ComicWebView.onTouchEvent` strictly limits tap-to-toggle gestures to the **center reading zone** (`30%..70%` vertical, `20%..80%` horizontal).
 - **Non-Obscuring Column Layout**: The main browser UI uses a `Column` layout rather than an overlapping `Box`. When the URL bar is visible, the web content begins cleanly below the bar so site headers are never covered. When scrolling down to read, the bars collapse (`shrinkVertically()`) and the WebView expands to full-screen edge-to-edge.
 - **Safe Insets**: Dialog menus (Brave menu, Home speed dial, History, AdBlock) use `.windowInsetsPadding(WindowInsets.safeDrawing)` with custom border styling to guarantee options never clip off the screen on devices with hole-punch cameras or curved corners.

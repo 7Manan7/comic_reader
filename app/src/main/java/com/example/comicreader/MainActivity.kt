@@ -31,6 +31,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // Load saved volume scroll preference
+        isVolumeScrollEnabled = com.example.comicreader.data.AppPreferences.isVolumeScrollEnabled(this)
+
         // Configure edge-to-edge rendering
         enableEdgeToEdge()
 
@@ -42,8 +45,8 @@ class MainActivity : ComponentActivity() {
             AdBlockListManager.init(applicationContext)
         }
 
-        // Load persisted adblock whitelist
-        AdBlockEngine.loadWhitelist(applicationContext)
+        // Load persisted adblock whitelist and master enabled setting
+        AdBlockEngine.loadSettings(applicationContext)
 
         // Default to standard browser mode (status bar visible, fullscreen on scroll down)
         setImmersiveMode(false)
@@ -63,6 +66,7 @@ class MainActivity : ComponentActivity() {
                         },
                         onToggleVolumeScroll = { enabled ->
                             isVolumeScrollEnabled = enabled
+                            com.example.comicreader.data.AppPreferences.setVolumeScrollEnabled(this, enabled)
                         },
                         onRegisterWebView = { webView ->
                             activeWebView = webView
@@ -122,5 +126,26 @@ class MainActivity : ComponentActivity() {
             }
         }
         return super.dispatchKeyEvent(event)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        activeWebView?.onPause()
+        activeWebView?.pauseTimers()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        activeWebView?.onResume()
+        activeWebView?.resumeTimers()
+    }
+
+    override fun onDestroy() {
+        activeWebView?.let {
+            it.stopLoading()
+            it.destroy()
+        }
+        activeWebView = null
+        super.onDestroy()
     }
 }

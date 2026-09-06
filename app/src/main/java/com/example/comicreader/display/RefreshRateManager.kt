@@ -11,6 +11,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlin.math.roundToInt
 
+import com.example.comicreader.data.AppPreferences
+
 /**
  * Manages display refresh rates and optimizes window rendering for
  * high refresh rate screens (60Hz, 90Hz, 120Hz, 144Hz, 165Hz+).
@@ -33,7 +35,8 @@ object RefreshRateManager {
     val selectedModeLabel: StateFlow<String> = _selectedModeLabel.asStateFlow()
 
     /**
-     * Initializes and queries the display hardware to detect supported refresh rates.
+     * Initializes and queries the display hardware to detect supported refresh rates,
+     * restoring the user's previously chosen refresh rate preference.
      */
     fun init(activity: Activity) {
         val display = getDisplay(activity) ?: return
@@ -44,8 +47,13 @@ object RefreshRateManager {
         _currentRefreshRate.value = activeRate
         Log.i(TAG, "Active refresh rate: $activeRate Hz. Supported rates: $rates")
 
-        // Default to the maximum available refresh rate (e.g., 120Hz, 144Hz, 165Hz)
-        setMaxRefreshRate(activity)
+        // Restore saved refresh rate preference (or default to Auto/Max)
+        val savedTarget = AppPreferences.getTargetRefreshRate(activity)
+        if (savedTarget <= 0f) {
+            setMaxRefreshRate(activity, persist = false)
+        } else {
+            setRefreshRate(activity, savedTarget, persist = false)
+        }
     }
 
     /**
@@ -61,7 +69,10 @@ object RefreshRateManager {
     /**
      * Finds and locks the window to the highest available refresh rate (e.g. 165Hz, 144Hz, 120Hz).
      */
-    fun setMaxRefreshRate(activity: Activity) {
+    fun setMaxRefreshRate(activity: Activity, persist: Boolean = true) {
+        if (persist) {
+            AppPreferences.setTargetRefreshRate(activity, -1f)
+        }
         val display = getDisplay(activity) ?: return
         val modes = display.supportedModes ?: return
 
@@ -76,10 +87,14 @@ object RefreshRateManager {
     /**
      * Sets the display to a specific target refresh rate (e.g. 60f, 120f, 144f, 165f) or Auto (-1f).
      */
-    fun setRefreshRate(activity: Activity, targetHz: Float) {
+    fun setRefreshRate(activity: Activity, targetHz: Float, persist: Boolean = true) {
         if (targetHz <= 0f) {
-            setMaxRefreshRate(activity)
+            setMaxRefreshRate(activity, persist)
             return
+        }
+
+        if (persist) {
+            AppPreferences.setTargetRefreshRate(activity, targetHz)
         }
 
         val display = getDisplay(activity) ?: return

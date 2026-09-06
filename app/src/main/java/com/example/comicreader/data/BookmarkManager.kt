@@ -1,4 +1,4 @@
-﻿package com.example.comicreader.data
+package com.example.comicreader.data
 
 import android.content.Context
 import android.content.SharedPreferences
@@ -63,8 +63,14 @@ object BookmarkManager {
     }
 
     private fun save(context: Context, bookmarks: List<Bookmark>) {
-        val raw = bookmarks.joinToString("\n") { "${it.id};;${it.name};;${it.url};;${it.icon}" }
+        val raw = bookmarks.joinToString("\n") { 
+            "${it.id};;${sanitize(it.name)};;${sanitize(it.url)};;${it.icon}" 
+        }
         getPrefs(context).edit().putString(KEY_BOOKMARKS, raw).apply()
+    }
+
+    private fun sanitize(input: String): String {
+        return input.replace("\r", "").replace("\n", " ").replace(";;", " - ").trim()
     }
 
     private fun getPrefs(context: Context): SharedPreferences {

@@ -87,8 +87,14 @@ object HistoryManager {
     }
 
     private fun save(context: Context, items: List<HistoryItem>) {
-        val raw = items.joinToString("\n") { "${it.id};;${it.title};;${it.url};;${it.timestamp}" }
+        val raw = items.joinToString("\n") { 
+            "${it.id};;${sanitize(it.title)};;${sanitize(it.url)};;${it.timestamp}" 
+        }
         getPrefs(context).edit().putString(KEY_HISTORY, raw).apply()
+    }
+
+    private fun sanitize(input: String): String {
+        return input.replace("\r", "").replace("\n", " ").replace(";;", " - ").trim()
     }
 
     private fun getPrefs(context: Context): SharedPreferences {
