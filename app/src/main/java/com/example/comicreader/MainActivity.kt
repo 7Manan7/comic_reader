@@ -15,6 +15,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
+import com.example.comicreader.adblock.AdBlockEngine
 import com.example.comicreader.adblock.AdBlockListManager
 import com.example.comicreader.display.RefreshRateManager
 import com.example.comicreader.theme.ComicReaderTheme
@@ -41,6 +42,9 @@ class MainActivity : ComponentActivity() {
             AdBlockListManager.init(applicationContext)
         }
 
+        // Load persisted adblock whitelist
+        AdBlockEngine.loadWhitelist(applicationContext)
+
         // Default to standard browser mode (status bar visible, fullscreen on scroll down)
         setImmersiveMode(false)
 
@@ -56,6 +60,9 @@ class MainActivity : ComponentActivity() {
                         },
                         onToggleKeepScreenOn = { keepOn ->
                             setKeepScreenOn(keepOn)
+                        },
+                        onToggleVolumeScroll = { enabled ->
+                            isVolumeScrollEnabled = enabled
                         },
                         onRegisterWebView = { webView ->
                             activeWebView = webView

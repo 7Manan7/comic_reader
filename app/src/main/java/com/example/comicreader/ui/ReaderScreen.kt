@@ -57,7 +57,7 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
+
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.ui.window.Dialog
@@ -122,6 +122,7 @@ import kotlin.math.roundToInt
 fun ReaderScreen(
     onToggleFullscreen: (Boolean) -> Unit,
     onToggleKeepScreenOn: (Boolean) -> Unit,
+    onToggleVolumeScroll: (Boolean) -> Unit,
     onRegisterWebView: (ComicWebView) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -215,9 +216,6 @@ fun ReaderScreen(
 
                     onTitleReceived = { title ->
                         pageTitle = title
-                        if (currentUrl.startsWith("http")) {
-                            historyList = HistoryManager.addHistoryEntry(context, title, currentUrl)
-                        }
                     }
 
                     onUrlChanged = { newUrl ->
@@ -237,14 +235,12 @@ fun ReaderScreen(
                             if (isHudVisible || !isImmersiveFullscreen) {
                                 isHudVisible = false
                                 isImmersiveFullscreen = true
-                                onToggleFullscreen(true)
                             }
                         } else {
                             // User scrolled up or reached top: restore basic browser UI
                             if (!isHudVisible || isImmersiveFullscreen) {
                                 isHudVisible = true
                                 isImmersiveFullscreen = false
-                                onToggleFullscreen(false)
                             }
                         }
                     }
@@ -254,7 +250,6 @@ fun ReaderScreen(
                         val showBrowser = !isHudVisible
                         isHudVisible = showBrowser
                         isImmersiveFullscreen = !showBrowser
-                        onToggleFullscreen(!showBrowser)
                     }
 
                     onBlockedAdCountChanged = { count ->
@@ -961,8 +956,8 @@ fun ReaderScreen(
                                             Switch(
                                                 checked = isWhitelisted,
                                                 onCheckedChange = { enable ->
-                                                    if (enable) AdBlockEngine.addToWhitelist(currentHost)
-                                                    else AdBlockEngine.removeFromWhitelist(currentHost)
+                                                    if (enable) AdBlockEngine.addToWhitelist(currentHost, context)
+                                                    else AdBlockEngine.removeFromWhitelist(currentHost, context)
                                                     webViewRef?.reload()
                                                 }
                                             )
@@ -1116,7 +1111,10 @@ fun ReaderScreen(
                                         }
                                         Switch(
                                             checked = isVolumeScrollEnabled,
-                                            onCheckedChange = { isVolumeScrollEnabled = it }
+                                            onCheckedChange = {
+                                                isVolumeScrollEnabled = it
+                                                onToggleVolumeScroll(it)
+                                            }
                                         )
                                     }
 
@@ -1269,11 +1267,14 @@ fun ReaderScreen(
                 Spacer(modifier = Modifier.height(12.dp))
 
                 // Quick Action: Bookmark Current Page
+                val isAlreadyBookmarked = bookmarks.any { it.url.trimEnd('/') == currentUrl.trimEnd('/') }
                 Button(
                     onClick = {
-                        val currentHost = runCatching { Uri.parse(currentUrl).host }.getOrNull() ?: currentUrl
-                        val title = pageTitle.ifBlank { currentHost }
-                        bookmarks = BookmarkManager.addBookmark(context, title, currentUrl, "⭐")
+                        if (!isAlreadyBookmarked) {
+                            val currentHost = runCatching { Uri.parse(currentUrl).host }.getOrNull() ?: currentUrl
+                            val title = pageTitle.ifBlank { currentHost }
+                            bookmarks = BookmarkManager.addBookmark(context, title, currentUrl, "⭐")
+                        }
                     },
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E88E5)),

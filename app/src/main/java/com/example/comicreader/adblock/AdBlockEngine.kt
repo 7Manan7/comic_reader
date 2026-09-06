@@ -5,6 +5,7 @@ import android.util.Log
 import android.webkit.WebResourceResponse
 import java.io.ByteArrayInputStream
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -167,8 +168,8 @@ object AdBlockEngine {
     @Volatile
     private var activeDomainCosmeticSelectors: Map<String, List<String>> = emptyMap()
 
-    // User-whitelisted domains
-    private val whitelistedDomains = mutableSetOf<String>()
+    // User-whitelisted domains (thread-safe + persisted)
+    private val whitelistedDomains: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
     /**
      * Loads rules parsed from all active filter lists into memory.
@@ -351,22 +352,42 @@ object AdBlockEngine {
         return blockedAdsCounter.get()
     }
 
-    /**
-     * Adds a domain to the whitelist.
-     */
-    fun addToWhitelist(domain: String) {
-        whitelistedDomains.add(domain.lowercase(Locale.ROOT))
-    }
-
-    /**
-     * Removes a domain from the whitelist.
-     */
-    fun removeFromWhitelist(domain: String) {
-        whitelistedDomains.remove(domain.lowercase(Locale.ROOT))
-    }
-
     fun isWhitelisted(domain: String): Boolean {
         return whitelistedDomains.contains(domain.lowercase(Locale.ROOT))
+    }
+
+    /**
+     * Loads persisted whitelist from SharedPreferences.
+     */
+    fun loadWhitelist(context: android.content.Context) {
+        val prefs = context.getSharedPreferences("adblock_whitelist", android.content.Context.MODE_PRIVATE)
+        val raw = prefs.getStringSet("domains", emptySet()) ?: emptySet()
+        whitelistedDomains.clear()
+        whitelistedDomains.addAll(raw)
+    }
+
+    /**
+     * Persists the current whitelist to SharedPreferences.
+     */
+    private fun saveWhitelist(context: android.content.Context) {
+        val prefs = context.getSharedPreferences("adblock_whitelist", android.content.Context.MODE_PRIVATE)
+        prefs.edit().putStringSet("domains", whitelistedDomains.toSet()).apply()
+    }
+
+    /**
+     * Adds a domain to the whitelist and persists.
+     */
+    fun addToWhitelist(domain: String, context: android.content.Context? = null) {
+        whitelistedDomains.add(domain.lowercase(Locale.ROOT))
+        context?.let { saveWhitelist(it) }
+    }
+
+    /**
+     * Removes a domain from the whitelist and persists.
+     */
+    fun removeFromWhitelist(domain: String, context: android.content.Context? = null) {
+        whitelistedDomains.remove(domain.lowercase(Locale.ROOT))
+        context?.let { saveWhitelist(it) }
     }
 
     /**

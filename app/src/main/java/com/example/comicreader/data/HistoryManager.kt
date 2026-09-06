@@ -1,4 +1,4 @@
-﻿package com.example.comicreader.data
+package com.example.comicreader.data
 
 import android.content.Context
 import android.content.SharedPreferences
@@ -87,7 +87,7 @@ object HistoryManager {
     }
 
     private fun save(context: Context, items: List<HistoryItem>) {
-        val raw = items.joinToString("\n") { ";;;;;;" }
+        val raw = items.joinToString("\n") { "${it.id};;${it.title};;${it.url};;${it.timestamp}" }
         getPrefs(context).edit().putString(KEY_HISTORY, raw).apply()
     }
 

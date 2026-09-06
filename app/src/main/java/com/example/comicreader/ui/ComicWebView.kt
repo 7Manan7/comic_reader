@@ -16,6 +16,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
+import android.webkit.WebView.HitTestResult
 import android.webkit.WebViewClient
 import com.example.comicreader.adblock.AdBlockEngine
 
@@ -42,6 +43,7 @@ class ComicWebView @JvmOverloads constructor(
     private var downX = 0f
     private var downY = 0f
     private var downTime = 0L
+    private var lastScrollDirectionChangeTime = 0L
 
     init {
         setupHardwareAcceleration()
@@ -236,7 +238,12 @@ class ComicWebView @JvmOverloads constructor(
                 val dt = System.currentTimeMillis() - downTime
                 // If it was a quick tap with minimal movement (< 25px, < 300ms)
                 if (dx < 25 && dy < 25 && dt < 300) {
-                    onSingleTap?.invoke()
+                    // Don't toggle HUD when tapping on interactive web elements (links, buttons, etc.)
+                    val hitResult = hitTestResult
+                    val isInteractiveElement = hitResult.type != HitTestResult.UNKNOWN_TYPE
+                    if (!isInteractiveElement) {
+                        onSingleTap?.invoke()
+                    }
                 }
             }
         }
@@ -262,12 +269,7 @@ class ComicWebView @JvmOverloads constructor(
     private fun smoothScrollBy(dx: Int, dy: Int) {
         // Use smooth scroll animation in JS for maximum 120/144/165Hz fluidity
         val js = "window.scrollBy({ top: $dy, left: $dx, behavior: 'smooth' });"
-        evaluateJavascript(js) {
-            // Fallback if page doesn't support smooth scroll
-            if (it == "null" || it == "undefined") {
-                scrollBy(dx, dy)
-            }
-        }
+        evaluateJavascript(js, null)
     }
 
     /**
@@ -305,14 +307,20 @@ class ComicWebView @JvmOverloads constructor(
     override fun onScrollChanged(l: Int, t: Int, oldl: Int, oldt: Int) {
         super.onScrollChanged(l, t, oldl, oldt)
         val dy = t - oldt
+        val now = System.currentTimeMillis()
+        // Debounce: ignore direction changes within 300ms to prevent HUD flickering
+        if (now - lastScrollDirectionChangeTime < 300) return
         if (t <= 15) {
             // Near top of page: restore browser UI
+            lastScrollDirectionChangeTime = now
             onScrollDirectionChanged?.invoke(false)
         } else if (dy > 12) {
             // Scrolling down: enter fullscreen reader mode
+            lastScrollDirectionChangeTime = now
             onScrollDirectionChanged?.invoke(true)
         } else if (dy < -12) {
             // Scrolling up: restore browser UI
+            lastScrollDirectionChangeTime = now
             onScrollDirectionChanged?.invoke(false)
         }
     }
