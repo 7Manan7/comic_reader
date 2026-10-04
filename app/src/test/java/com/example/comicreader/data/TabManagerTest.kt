@@ -64,4 +64,37 @@ class TabManagerTest {
         assertEquals(3, list.size)
         assertEquals("4", list[2].id)
     }
+
+    @Test
+    fun testTabIncognitoProperty() {
+        val standardTab = Tab(id = "std-1", isIncognito = false)
+        val privateTab = Tab(id = "pvt-1", title = "Private Tab", isIncognito = true)
+
+        assertEquals(false, standardTab.isIncognito)
+        assertEquals(true, privateTab.isIncognito)
+
+        val updatedPrivate = standardTab.copy(isIncognito = true)
+        assertEquals(true, updatedPrivate.isIncognito)
+    }
+
+    @Test
+    fun testIncognitoTabFiltering() {
+        val tabs = listOf(
+            Tab(id = "1", title = "Home", isIncognito = false),
+            Tab(id = "2", title = "Private 1", isIncognito = true),
+            Tab(id = "3", title = "Manga", isIncognito = false),
+            Tab(id = "4", title = "Private 2", isIncognito = true)
+        )
+
+        val regularTabs = tabs.filter { !it.isIncognito }
+        val incognitoTabs = tabs.filter { it.isIncognito }
+
+        assertEquals(2, regularTabs.size)
+        assertEquals("1", regularTabs[0].id)
+        assertEquals("3", regularTabs[1].id)
+
+        assertEquals(2, incognitoTabs.size)
+        assertEquals("2", incognitoTabs[0].id)
+        assertEquals("4", incognitoTabs[1].id)
+    }
 }

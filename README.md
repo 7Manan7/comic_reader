@@ -1,6 +1,6 @@
 # Kuro Reader 📖⚡
 
-A high-performance Android browser app engineered specifically for reading online comics, manga, manhwa, and webtoons. Designed for distraction-free reading with a built-in aggressive ad blocker, full immersive/transparent edge-to-edge system bars, and dynamic display mode optimization supporting high refresh rate screens (**60Hz, 90Hz, 120Hz, 144Hz, and 165Hz+**).
+A high-performance Android browser app engineered specifically for reading online comics, manga, manhwa, and webtoons. Designed for distraction-free reading with a built-in aggressive multi-list ad blocker, full immersive/transparent edge-to-edge system bars, multi-tab and private browsing, and dynamic display mode optimization supporting high refresh rate screens (**60Hz, 90Hz, 120Hz, 144Hz, and 165Hz+**).
 
 ---
 
@@ -10,6 +10,40 @@ A high-performance Android browser app engineered specifically for reading onlin
   - Hardware-level detection of supported refresh rates using Android's `Display.supportedModes`.
   - Automatically locks window attributes (`preferredDisplayModeId` & `preferredRefreshRate`) to the highest hardware refresh rate (120Hz, 144Hz, 165Hz) for ultra-fluid, tear-free scrolling.
   - In-app refresh rate selector: switch between **Auto (Max)**, **60Hz** (battery saver), **90Hz**, **120Hz**, **144Hz**, and **165Hz**.
+
+- **📑 Multi-Tab Browsing & Tab Manager**:
+  - Full multi-tab engine supporting up to 20 concurrent tabs with automatic LRU trimming.
+  - Interactive **Tab Switcher Sheet**: preview open tabs, active status badges, URLs, and switch between tabs with a single tap.
+  - Individual tab close buttons (`✕`) and one-tap **Close All Tabs** action.
+  - Dynamic top bar **Tab Counter Badge** with instant status indication (`99+` support).
+  - Open links in new background or foreground tabs via long-press menus.
+
+- **🕶️ Private & Incognito Browsing Mode**:
+  - Dedicated private tabs with complete session isolation.
+  - **Zero trace**: disables cache (`LOAD_NO_CACHE`), disables form data saving (`saveFormData = false`), clears web history/cookies on navigation, and never writes visited pages to reading history.
+  - Distinctive incognito UI with deep purple styling, private badge icons (`🕶️`), and an informative incognito privacy dashboard.
+  - Filter tabs in the switcher by **All**, **Regular**, or **Private**, with a dedicated **Close All Private Tabs** action.
+
+- **🏠 Curated Home Dashboard & Multi-Engine Search**:
+  - Interactive homepage (`about:home`) displayed on new tabs and home navigations.
+  - **Multi-Engine Search Selector**: quickly toggle between **Google** 🔍, **DuckDuckGo** 🦆, **Brave** 🦁, **Bing** 🌐, and **Ecosia** 🌱 with direct search bar integration.
+  - **Curated Manga & Manhwa Directory**: instant 1-tap launchpad to top reading hubs:
+    - **Asura Scans** (Top action, regression & solo leveling manhwa)
+    - **Demonic Scans** (Martial arts & fast action releases)
+    - **Flame Comics** (Trending Korean fantasy webtoons)
+    - **Comix** (Clean, high-speed reader with full-width webtoon view)
+    - **MangaDex** (Non-profit community hub with scanlation teams)
+    - **MangaKatana** (Vast manga & manhwa archives)
+    - **Webtoons** (Official global webcomics platform)
+    - **MangaFreak** (Daily chapter releases)
+    - **ComicK** (Modern manga tracking platform)
+    - **MangaPark** (Multi-source high-res aggregator)
+  - Quick-access bookmark grid and recent reading history carousel right on the home dashboard.
+
+- **👆 Intuitive Horizontal Swipe Gestures**:
+  - **Swipe Right** (left-to-right): navigates back in browsing history, or smoothly returns to the Home dashboard if at the root page.
+  - **Swipe Left** (right-to-left): navigates forward in browsing history.
+  - Velocity and angle-calibrated gesture detection ensuring continuous vertical manga/webtoon scrolling is never accidentally interrupted.
 
 - **🛡️ Built-in Multi-List AdBlock & Security Engine (15 Filter Lists across 4 Categories)**:
   - **Default (4/4)**:
@@ -44,22 +78,20 @@ A high-performance Android browser app engineered specifically for reading onlin
   - Bespoke modern adaptive icon featuring dynamic manga panel art, cyber-cyan and electric-magenta energy vortex trails, and a 165Hz golden speed-lightning crest.
   - Includes dedicated Android 13+ Material You monochrome theming and multi-density high-res mipmaps.
 
-- **📱 Basic Browser UI with Smart Scroll Fullscreen**:
-  - **Basic Browser Mode by Default**: Launches with standard browser appearance (visible status bar, top URL/search bar, and bottom navigation bar).
-  - **Dynamic Scroll-Down Fullscreen**: Seamlessly enters immersive fullscreen mode when scrolling down through manga chapters; restores the basic browser controls when scrolling up or returning to top.
+- **📱 Smart Scroll Fullscreen & HUD**:
+  - **Basic Browser Mode by Default**: Launches with standard browser controls (status bar, top URL/search bar, and bottom navigation bar).
+  - **Dynamic Scroll-Down Fullscreen**: Seamlessly enters immersive fullscreen mode when scrolling down through manga chapters; restores controls when scrolling up or returning to top.
   - **Tap-to-Toggle HUD**: Single-tap anywhere to manually toggle between fullscreen reading mode and standard browser view.
 
 - **📚 Manga Sites & Dynamic Bookmark Management**:
-  - Pre-configured with popular manga hubs: **Comix** (`https://comix.to/`), **MangaFreak** (`https://ww3.mangafreak.me/`), and **MangaKatana** (`https://mangakatana.com/`).
-  - **Add Custom Manga Sites**: Add your own favorite manga, manhwa, and comic reading websites with persistent local storage.
-  - **Single-Tap Bookmark**: Instantly bookmark the currently viewed comic chapter or site.
-  - **Manage & Delete Bookmarks**: Open the "+ Sites" sheet to manage, navigate to, or remove saved sites.
+  - Custom bookmarks manager with 1-tap addition, editing, and deletion.
+  - Instant synchronization between the Home dashboard and the reader controls drawer.
+  - Seamless navigation to any saved comic chapter or reading portal.
 
 - **📜 Full Browsing History**:
-  - Automatically records visited pages and manga chapters with page titles, URLs, and timestamps.
-  - Quick access via the **History** chip in the bookmarks bar or the **History** button on the bottom controls.
-  - Built-in instant search filtering across history records.
-  - Click any entry to reopen, delete individual entries, or clear all history with single-tap.
+  - Automatically records visited pages and manga chapters with page titles, URLs, and timestamps (automatically suppressed in Incognito tabs).
+  - Quick access via the Home dashboard or the reader controls bar.
+  - Instant keyword search filtering across browsing records with individual or bulk deletion.
 
 - **🔄 One-Tap AdBlock Filter Refresh**:
   - Readily accessible in two places:
@@ -86,7 +118,9 @@ A high-performance Android browser app engineered specifically for reading onlin
                            │
 ┌──────────────────────────▼─────────────────────────────┐
 │                 Compose UI Layer                       │
-│  - Top Bar (Auto-hiding, URL bar, AdBlock badge)       │
+│  - Top Bar (Auto-hiding, URL bar, AdBlock badge, Tabs) │
+│  - HomeScreenContent (Search engines, Manhwa directory)│
+│  - Tab Switcher Sheet (Multi-tab, Incognito isolation) │
 │  - Bottom Control Bar (Reader mode, Refresh rate, Nav) │
 │  - Quick Bookmarks Drawer & Settings Bottom Sheet      │
 └──────────────────────────┬─────────────────────────────┘
@@ -94,17 +128,18 @@ A high-performance Android browser app engineered specifically for reading onlin
 ┌──────────────────────────▼─────────────────────────────┐
 │              ComicWebView (AndroidView)                │
 │  - Hardware Accelerated Layer (LAYER_TYPE_HARDWARE)    │
-│  - DOM / WebGL / Smooth Fling Enabled                  │
+│  - Touch & Horizontal Swipe Gesture Navigation         │
+│  - Incognito Privacy Enforcement (No-cache, no-cookies)│
 │  - Custom WebChromeClient (Block popups & redirects)   │
 │  - Custom WebViewClient with AdBlockEngine             │
 └──────────────────────────┬─────────────────────────────┘
                            │
 ┌──────────────────────────▼─────────────────────────────┐
-│                   AdBlockEngine                        │
-│  - Domain & Subdomain Filter Set                       │
-│  - Resource regex filters (scripts, banners, popups)   │
-│  - Cosmetic CSS Element Inserter (removes ad spaces)   │
-│  - Domain Whitelist & Live Block Counter               │
+│         AdBlockEngine & Core Data Managers             │
+│  - Domain & Subdomain Filter Set (15 filter sources)   │
+│  - TabManager (Multi-tab state, LRU persistence)       │
+│  - SearchEngine & ManhwaDirectory catalogs             │
+│  - BookmarkManager & HistoryManager                    │
 └────────────────────────────────────────────────────────┘
 ```
 
@@ -160,6 +195,11 @@ A high-performance Android browser app engineered specifically for reading onlin
 | Feature | Control | Description |
 |---|---|---|
 | **Toggle Browser / Fullscreen** | Scroll Down / Up or Tap | Automatically switches to fullscreen when scrolling down; restores browser when scrolling up or tapping |
+| **Tab Switcher** | Tab counter badge in top bar | Open tab switcher sheet, switch active tabs, close tabs, or clear all tabs |
+| **Incognito Mode** | New Private Tab in tab sheet | Browse privately with cache/cookies disabled, purple theme, and no history tracking |
+| **Horizontal Swipe Navigation** | Swipe Left / Right on screen | Swipe right to navigate back (or return to Home); swipe left to navigate forward |
+| **Home Dashboard** | Return to `about:home` or New Tab | Access multi-engine search, curated manhwa directory, bookmarks, and recent history |
+| **Search Engines** | Home search bar engine chips | Switch search providers between Google, DuckDuckGo, Brave, Bing, and Ecosia |
 | **Manage Sites & Bookmarks** | "+ Sites" button in bottom bar | View, add custom sites, bookmark current page, or delete saved bookmarks |
 | **Page Navigation** | Volume Up / Down | Scrolls up or down one page length for one-handed reading |
 | **Refresh Rate** | Settings Sheet / ⚡ Badge | Choose between Auto (Max), 60Hz, 90Hz, 120Hz, 144Hz, or 165Hz |

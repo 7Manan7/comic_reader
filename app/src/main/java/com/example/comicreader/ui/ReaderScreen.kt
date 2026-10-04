@@ -202,8 +202,13 @@ fun ReaderScreen(
         }
     }
 
-    fun addNewTab(url: String = AppPreferences.DEFAULT_HOME_URL, title: String = "Home") {
-        val (updatedTabs, newTab) = TabManager.createTab(context, url, title)
+    fun addNewTab(
+        url: String = AppPreferences.DEFAULT_HOME_URL,
+        title: String = "Home",
+        isIncognito: Boolean = false
+    ) {
+        val cleanTitle = if (title == "Home" && isIncognito) "Private Tab" else title
+        val (updatedTabs, newTab) = TabManager.createTab(context, url, cleanTitle, isIncognito)
         tabs = updatedTabs
         selectTab(newTab.id)
     }
@@ -212,6 +217,8 @@ fun ReaderScreen(
         tabWebViews[tabId]?.let { wv ->
             (wv.parent as? ViewGroup)?.removeView(wv)
             wv.stopLoading()
+            wv.clearHistory()
+            wv.clearCache(true)
             wv.destroy()
             tabWebViews.remove(tabId)
         }
@@ -244,6 +251,8 @@ fun ReaderScreen(
         tabWebViews.values.forEach { wv ->
             (wv.parent as? ViewGroup)?.removeView(wv)
             wv.stopLoading()
+            wv.clearHistory()
+            wv.clearCache(true)
             wv.destroy()
         }
         tabWebViews.clear()
@@ -257,6 +266,22 @@ fun ReaderScreen(
         canGoBack = false
         canGoForward = false
         webViewRef = null
+    }
+
+    fun closeAllIncognitoTabs() {
+        tabs.filter { it.isIncognito }.forEach { tab ->
+            tabWebViews[tab.id]?.let { wv ->
+                (wv.parent as? ViewGroup)?.removeView(wv)
+                wv.stopLoading()
+                wv.clearHistory()
+                wv.clearCache(true)
+                wv.destroy()
+                tabWebViews.remove(tab.id)
+            }
+        }
+        val (updatedTabs, newActiveId) = TabManager.closeAllIncognitoTabs(context)
+        tabs = updatedTabs
+        selectTab(newActiveId)
     }
 
     DisposableEffect(Unit) {
@@ -322,8 +347,8 @@ fun ReaderScreen(
             val homeUrl = AppPreferences.DEFAULT_HOME_URL
             currentUrl = homeUrl
             inputUrl = ""
-            pageTitle = "Home"
-            tabs = TabManager.updateTab(context, activeTabId, title = "Home", url = homeUrl)
+            pageTitle = if (activeTab.isIncognito) "Private Tab" else "Home"
+            tabs = TabManager.updateTab(context, activeTabId, title = pageTitle, url = homeUrl)
         }
     }
 
@@ -341,7 +366,7 @@ fun ReaderScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color(0xE61E1E24))
+                    .background(if (activeTab.isIncognito) Color(0xE6140D1E) else Color(0xE61E1E24))
                     .then(if (!isImmersiveFullscreen) Modifier.statusBarsPadding() else Modifier)
                     .padding(horizontal = 8.dp, vertical = 6.dp)
             ) {
@@ -349,92 +374,111 @@ fun ReaderScreen(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Back button
-                    IconButton(
-                        onClick = { webViewRef?.let { if (it.canGoBack()) it.goBack() } },
-                        enabled = canGoBack
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                            tint = if (canGoBack) Color.White else Color.Gray
-                        )
-                    }
-
-                    // Forward button
-                    IconButton(
-                        onClick = { webViewRef?.let { if (it.canGoForward()) it.goForward() } },
-                        enabled = canGoForward
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                            contentDescription = "Forward",
-                            tint = if (canGoForward) Color.White else Color.Gray
-                        )
-                    }
-
-                    // URL / Search text box
+                    // Full-Width Firefox-style URL / Search bar
                     val displayUrl = if (inputUrl == AppPreferences.DEFAULT_HOME_URL || inputUrl == "about:home") "" else inputUrl
                     OutlinedTextField(
                         value = displayUrl,
                         onValueChange = { inputUrl = it },
                         modifier = Modifier
                             .weight(1f)
-                            .height(50.dp)
+                            .height(48.dp)
                             .onFocusChanged { isUrlInputFocused = it.isFocused },
                         textStyle = MaterialTheme.typography.bodyMedium.copy(color = Color.White),
                         singleLine = true,
                         placeholder = {
-                            Text("Search or enter comic URL...", color = Color.Gray, maxLines = 1)
+                            Text(
+                                text = if (activeTab.isIncognito) "Search or enter private URL..." else "Search or enter comic URL...",
+                                color = if (activeTab.isIncognito) Color(0xFFA855F7).copy(alpha = 0.7f) else Color.Gray,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        },
+                        leadingIcon = {
+                            if (activeTab.isIncognito) {
+                                Text(
+                                    text = "🕶️",
+                                    fontSize = 15.sp,
+                                    modifier = Modifier.padding(start = 6.dp)
+                                )
+                            } else if (isHomeTab) {
+                                Icon(
+                                    imageVector = Icons.Default.Search,
+                                    contentDescription = "Search",
+                                    tint = Color.Gray,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            } else {
+                                Text(
+                                    text = "🛡️",
+                                    fontSize = 14.sp,
+                                    modifier = Modifier
+                                        .clickable { showAdBlockDialog = true }
+                                        .padding(start = 6.dp)
+                                )
+                            }
+                        },
+                        trailingIcon = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (displayUrl.isNotEmpty()) {
+                                    IconButton(
+                                        onClick = { inputUrl = "" },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Close,
+                                            contentDescription = "Clear",
+                                            tint = Color.Gray,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                                if (!isHomeTab) {
+                                    IconButton(
+                                        onClick = { webViewRef?.reload() },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Refresh,
+                                            contentDescription = "Reload",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                            }
                         },
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
                         keyboardActions = KeyboardActions(onGo = {
                             focusManager.clearFocus()
                             val destination = normalizeUrl(inputUrl, context)
                             currentUrl = destination
-                            val title = if (destination.startsWith("http")) inputUrl else "Home"
+                            val title = if (destination.startsWith("http")) inputUrl else if (activeTab.isIncognito) "Private Tab" else "Home"
                             tabs = TabManager.updateTab(context, activeTabId, title = title, url = destination)
                             tabWebViews[activeTabId]?.loadUrl(destination)
                         }),
-                        trailingIcon = {
-                            if (displayUrl.isNotEmpty()) {
-                                IconButton(onClick = { inputUrl = "" }) {
-                                    Icon(
-                                        imageVector = Icons.Default.Close,
-                                        contentDescription = "Clear",
-                                        tint = Color.Gray
-                                    )
-                                }
-                            }
-                        },
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Color(0xFF64B5F6),
-                            unfocusedBorderColor = Color(0xFF44444F),
-                            focusedContainerColor = Color(0xFF2A2A32),
-                            unfocusedContainerColor = Color(0xFF2A2A32)
+                            focusedBorderColor = if (activeTab.isIncognito) Color(0xFFA855F7) else Color(0xFF64B5F6),
+                            unfocusedBorderColor = if (activeTab.isIncognito) Color(0xFF581C87) else Color(0xFF44444F),
+                            focusedContainerColor = if (activeTab.isIncognito) Color(0xFF221634) else Color(0xFF2A2A32),
+                            unfocusedContainerColor = if (activeTab.isIncognito) Color(0xFF221634) else Color(0xFF2A2A32)
                         ),
                         shape = RoundedCornerShape(24.dp)
                     )
 
-                    Spacer(modifier = Modifier.width(4.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
 
                     // Tabs Switcher Button
                     TabBadgeButton(
                         tabCount = tabs.size,
+                        isIncognito = activeTab.isIncognito,
                         onClick = { showTabsSheet = true }
                     )
 
-                    // Refresh Button
-                    IconButton(onClick = { webViewRef?.reload() }) {
-                        Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = "Reload",
-                            tint = Color.White
-                        )
-                    }
-
                     // Brave Menu (⋮)
-                    IconButton(onClick = { showBraveMenu = true }) {
+                    IconButton(
+                        onClick = { showBraveMenu = true },
+                        modifier = Modifier.size(36.dp)
+                    ) {
                         Icon(
                             imageVector = Icons.Default.MoreVert,
                             contentDescription = "Menu & Settings",
@@ -461,12 +505,13 @@ fun ReaderScreen(
                         tabWebViews[activeTabId]?.loadUrl(destination)
                     },
                     onOpenInNewTab = { destination, title ->
-                        addNewTab(url = destination, title = title)
+                        addNewTab(url = destination, title = title, isIncognito = activeTab.isIncognito)
                     },
                     onOpenHistory = {
                         historyList = HistoryManager.getHistory(context)
                         showHistorySheet = true
                     },
+                    isIncognito = activeTab.isIncognito,
                     modifier = Modifier.fillMaxSize()
                 )
             } else {
@@ -491,6 +536,7 @@ fun ReaderScreen(
                                         ViewGroup.LayoutParams.MATCH_PARENT,
                                         ViewGroup.LayoutParams.MATCH_PARENT
                                     )
+                                    configureIncognito(activeTab.isIncognito)
 
                                     onProgressChanged = { progress ->
                                         if (activeTabId == targetTabId) {
@@ -503,7 +549,7 @@ fun ReaderScreen(
                                     onTitleReceived = { title ->
                                         if (activeTabId == targetTabId) {
                                             pageTitle = title
-                                            if (currentUrl.startsWith("http") && title.isNotBlank()) {
+                                            if (currentUrl.startsWith("http") && title.isNotBlank() && !activeTab.isIncognito) {
                                                 historyList = HistoryManager.addHistoryEntry(context, title, currentUrl)
                                             }
                                         }
@@ -516,7 +562,7 @@ fun ReaderScreen(
                                             inputUrl = newUrl
                                             canGoBack = canGoBack()
                                             canGoForward = canGoForward()
-                                            if (newUrl.startsWith("http")) {
+                                            if (newUrl.startsWith("http") && !activeTab.isIncognito) {
                                                 val title = pageTitle.ifBlank { newUrl }
                                                 historyList = HistoryManager.addHistoryEntry(context, title, newUrl)
                                                 SessionManager.saveLastUrl(context, newUrl)
@@ -526,7 +572,15 @@ fun ReaderScreen(
                                     }
 
                                     onNewTabRequested = { targetUrl ->
-                                        addNewTab(targetUrl, "New Tab")
+                                        addNewTab(targetUrl, "New Tab", isIncognito = activeTab.isIncognito)
+                                    }
+
+                                    onSwipeBackToHome = {
+                                        val homeUrl = AppPreferences.DEFAULT_HOME_URL
+                                        currentUrl = homeUrl
+                                        inputUrl = ""
+                                        pageTitle = if (activeTab.isIncognito) "Private Tab" else "Home"
+                                        tabs = TabManager.updateTab(context, targetTabId, title = pageTitle, url = homeUrl)
                                     }
 
                                     onScrollDirectionChanged = { isScrollingDown ->
@@ -610,11 +664,11 @@ fun ReaderScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color(0xE61E1E24))
+                    .background(if (activeTab.isIncognito) Color(0xE6140D1E) else Color(0xE61E1E24))
                     .then(if (!isImmersiveFullscreen) Modifier.navigationBarsPadding() else Modifier)
                     .padding(horizontal = 12.dp, vertical = 6.dp)
             ) {
-                // Clean Bottom Navigation Bar (No carousel, no settings clutter)
+                // Clean Bottom Navigation Bar (No arrows - swiping controlled)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -622,62 +676,57 @@ fun ReaderScreen(
                     horizontalArrangement = Arrangement.SpaceAround,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Home Button (Navigates active tab to Home)
+                    // Home Button
                     IconButton(onClick = {
                         val homeUrl = AppPreferences.DEFAULT_HOME_URL
                         currentUrl = homeUrl
                         inputUrl = ""
-                        pageTitle = "Home"
-                        tabs = TabManager.updateTab(context, activeTabId, title = "Home", url = homeUrl)
+                        pageTitle = if (activeTab.isIncognito) "Private Tab" else "Home"
+                        tabs = TabManager.updateTab(context, activeTabId, title = pageTitle, url = homeUrl)
                     }) {
                         Icon(
                             imageVector = Icons.Default.Home,
                             contentDescription = "Home",
-                            tint = if (isHomeTab) Color(0xFF64B5F6) else Color.White
+                            tint = if (isHomeTab) (if (activeTab.isIncognito) Color(0xFFA855F7) else Color(0xFF64B5F6)) else Color.White
                         )
                     }
 
-                    // Back Button
-                    IconButton(
-                        onClick = { webViewRef?.let { if (it.canGoBack()) it.goBack() } },
-                        enabled = canGoBack
-                    ) {
+                    // + New Tab Button
+                    IconButton(onClick = { addNewTab(isIncognito = activeTab.isIncognito) }) {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                            tint = if (canGoBack) Color.White else Color.Gray
+                            imageVector = Icons.Default.Add,
+                            contentDescription = "New Tab",
+                            tint = Color.White
                         )
                     }
 
-                    // Forward Button
-                    IconButton(
-                        onClick = { webViewRef?.let { if (it.canGoForward()) it.goForward() } },
-                        enabled = canGoForward
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                            contentDescription = "Forward",
-                            tint = if (canGoForward) Color.White else Color.Gray
-                        )
+                    // Incognito / Private Tab Quick Launcher
+                    IconButton(onClick = {
+                        val existingIncognito = tabs.firstOrNull { it.isIncognito }
+                        if (existingIncognito != null && !activeTab.isIncognito) {
+                            selectTab(existingIncognito.id)
+                        } else {
+                            addNewTab(isIncognito = true)
+                        }
+                    }) {
+                        Surface(
+                            shape = CircleShape,
+                            color = if (activeTab.isIncognito) Color(0xFF581C87) else Color.Transparent
+                        ) {
+                            Text(
+                                text = "🕶️",
+                                fontSize = 16.sp,
+                                modifier = Modifier.padding(6.dp)
+                            )
+                        }
                     }
 
                     // Tabs Switcher Button
                     TabBadgeButton(
                         tabCount = tabs.size,
+                        isIncognito = activeTab.isIncognito,
                         onClick = { showTabsSheet = true }
                     )
-
-                    // Browsing History Button
-                    IconButton(onClick = {
-                        historyList = HistoryManager.getHistory(context)
-                        showHistorySheet = true
-                    }) {
-                        Icon(
-                            imageVector = Icons.Default.History,
-                            contentDescription = "History",
-                            tint = Color.White
-                        )
-                    }
 
                     // Brave Menu (⋮)
                     IconButton(onClick = { showBraveMenu = true }) {
@@ -821,36 +870,6 @@ fun ReaderScreen(
                                     horizontalArrangement = Arrangement.SpaceEvenly,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    // Back
-                                    IconButton(
-                                        onClick = {
-                                            webViewRef?.let { if (it.canGoBack()) it.goBack() }
-                                            showBraveMenu = false
-                                        },
-                                        enabled = canGoBack
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                            contentDescription = "Back",
-                                            tint = if (canGoBack) Color.White else Color.DarkGray
-                                        )
-                                    }
-
-                                    // Forward
-                                    IconButton(
-                                        onClick = {
-                                            webViewRef?.let { if (it.canGoForward()) it.goForward() }
-                                            showBraveMenu = false
-                                        },
-                                        enabled = canGoForward
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                                            contentDescription = "Forward",
-                                            tint = if (canGoForward) Color.White else Color.DarkGray
-                                        )
-                                    }
-
                                     // Reload
                                     IconButton(
                                         onClick = {
@@ -901,6 +920,51 @@ fun ReaderScreen(
                                             fontSize = 18.sp
                                         )
                                     }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            // Private Browsing Quick Action
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .clickable {
+                                        showBraveMenu = false
+                                        addNewTab(isIncognito = true)
+                                    },
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFF261938)),
+                                shape = RoundedCornerShape(14.dp),
+                                border = BorderStroke(1.dp, Color(0xFF7C3AED).copy(alpha = 0.5f))
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(text = "🕶️", fontSize = 20.sp)
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "New Private Tab",
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White,
+                                            fontSize = 14.sp
+                                        )
+                                        Text(
+                                            text = "Browse without saving history, cache, or cookies",
+                                            color = Color(0xFFC084FC),
+                                            fontSize = 11.sp
+                                        )
+                                    }
+                                    Icon(
+                                        imageVector = Icons.Default.Add,
+                                        contentDescription = "Open",
+                                        tint = Color(0xFFA855F7),
+                                        modifier = Modifier.size(18.dp)
+                                    )
                                 }
                             }
 
@@ -1847,6 +1911,13 @@ fun ReaderScreen(
 
     // Tabs Switcher Dialog / Overview
     if (showTabsSheet) {
+        var tabFilter by remember {
+            mutableStateOf(if (activeTab.isIncognito) "private" else "standard")
+        }
+        val regularTabs = tabs.filter { !it.isIncognito }
+        val incognitoTabs = tabs.filter { it.isIncognito }
+        val displayedTabs = if (tabFilter == "private") incognitoTabs else regularTabs
+
         Dialog(
             onDismissRequest = { showTabsSheet = false },
             properties = DialogProperties(
@@ -1857,23 +1928,23 @@ fun ReaderScreen(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.76f))
+                    .background(Color.Black.copy(alpha = 0.82f))
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
                         onClick = { showTabsSheet = false }
                     )
                     .windowInsetsPadding(WindowInsets.safeDrawing)
-                    .padding(start = 16.dp, end = 16.dp, top = 24.dp, bottom = 24.dp),
+                    .padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 20.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .fillMaxHeight(0.88f)
+                        .fillMaxHeight(0.90f)
                         .border(
                             width = 2.dp,
-                            color = Color(0xFF535A7B),
+                            color = if (tabFilter == "private") Color(0xFF9333EA).copy(alpha = 0.6f) else Color(0xFF3B4261),
                             shape = RoundedCornerShape(24.dp)
                         )
                         .clip(RoundedCornerShape(24.dp))
@@ -1883,7 +1954,7 @@ fun ReaderScreen(
                             onClick = { /* consume click */ }
                         ),
                     shape = RoundedCornerShape(24.dp),
-                    color = Color(0xFF141620),
+                    color = if (tabFilter == "private") Color(0xFF130F1E) else Color(0xFF141620),
                     shadowElevation = 24.dp
                 ) {
                     Column(
@@ -1891,187 +1962,320 @@ fun ReaderScreen(
                             .fillMaxSize()
                             .padding(16.dp)
                     ) {
-                        // Header
+                        // Top Header: Segmented switch (Standard vs Private) + Close
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = "📑 Tabs (${tabs.size})",
-                                    fontSize = 18.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White
+                            // Segmented Switcher Pill
+                            Row(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(Color(0xFF1F2333))
+                                    .padding(3.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                // Standard Tabs Button
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(
+                                            if (tabFilter == "standard") Color(0xFF2563EB) else Color.Transparent
+                                        )
+                                        .clickable { tabFilter = "standard" }
+                                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "📑 Tabs (${regularTabs.size})",
+                                        fontSize = 12.sp,
+                                        fontWeight = if (tabFilter == "standard") FontWeight.Bold else FontWeight.Medium,
+                                        color = if (tabFilter == "standard") Color.White else Color(0xFF94A3B8)
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.width(4.dp))
+
+                                // Private Tabs Button
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(
+                                            if (tabFilter == "private") Color(0xFF7E22CE) else Color.Transparent
+                                        )
+                                        .clickable { tabFilter = "private" }
+                                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "🕶️ Private (${incognitoTabs.size})",
+                                        fontSize = 12.sp,
+                                        fontWeight = if (tabFilter == "private") FontWeight.Bold else FontWeight.Medium,
+                                        color = if (tabFilter == "private") Color.White else Color(0xFF94A3B8)
+                                    )
+                                }
+                            }
+
+                            // Close Dialog Button
+                            IconButton(
+                                onClick = { showTabsSheet = false },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Close",
+                                    tint = Color.Gray,
+                                    modifier = Modifier.size(20.dp)
                                 )
                             }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        // Secondary Action Bar (Close All / Add Tab header shortcuts)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = if (tabFilter == "private") "Private Tabs" else "Open Tabs",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (tabFilter == "private") Color(0xFFD8B4FE) else Color(0xFFCBD5E1)
+                            )
 
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                // Add New Tab button in header
-                                OutlinedButton(
-                                    onClick = {
-                                        addNewTab()
-                                        showTabsSheet = false
-                                    },
-                                    shape = RoundedCornerShape(12.dp),
-                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF64B5F6)),
-                                    border = BorderStroke(1.dp, Color(0xFF3F445A)),
-                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 4.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Add,
-                                        contentDescription = "New Tab",
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("New", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                                }
-
-                                if (tabs.size > 1) {
+                                if (tabFilter == "private" && incognitoTabs.isNotEmpty()) {
+                                    TextButton(
+                                        onClick = {
+                                            closeAllIncognitoTabs()
+                                            tabFilter = "standard"
+                                        },
+                                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                    ) {
+                                        Text(
+                                            text = "Close All Private",
+                                            color = Color(0xFFF87171),
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
+                                } else if (tabFilter == "standard" && regularTabs.size > 1) {
                                     TextButton(
                                         onClick = {
                                             closeAllTabs()
                                             showTabsSheet = false
                                         },
-                                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 2.dp)
                                     ) {
                                         Text(
                                             text = "Close All",
                                             color = Color(0xFFEF5350),
-                                            fontSize = 12.sp,
+                                            fontSize = 11.sp,
                                             fontWeight = FontWeight.SemiBold
                                         )
                                     }
                                 }
-
-                                IconButton(onClick = { showTabsSheet = false }) {
-                                    Icon(
-                                        imageVector = Icons.Default.Close,
-                                        contentDescription = "Close",
-                                        tint = Color.Gray
-                                    )
-                                }
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(10.dp))
 
-                        // Grid of tabs
-                        LazyVerticalGrid(
-                            columns = GridCells.Adaptive(minSize = 145.dp),
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxWidth(),
-                            verticalArrangement = Arrangement.spacedBy(10.dp),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            items(tabs, key = { it.id }) { tab ->
-                                val isActive = tab.id == activeTabId
-                                val domain = runCatching { Uri.parse(tab.url).host }.getOrNull().orEmpty()
-                                val isComicSite = domain.contains("comix") || domain.contains("manga")
+                        // Tab Content Area: either empty state (if private empty) or grid
+                        if (tabFilter == "private" && incognitoTabs.isEmpty()) {
+                            // Sleek Firefox-style Private Browsing Empty State
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxWidth(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center,
+                                    modifier = Modifier.padding(horizontal = 24.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(72.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFF3B0764).copy(alpha = 0.7f))
+                                            .border(1.5.dp, Color(0xFFA855F7), CircleShape),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(text = "🕶️", fontSize = 34.sp)
+                                    }
 
-                                Card(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(140.dp)
-                                        .clickable {
-                                            selectTab(tab.id)
+                                    Spacer(modifier = Modifier.height(16.dp))
+
+                                    Text(
+                                        text = "Private Browsing",
+                                        color = Color(0xFFF3E8FF),
+                                        fontSize = 18.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+
+                                    Spacer(modifier = Modifier.height(8.dp))
+
+                                    Text(
+                                        text = "Comic Reader won't save visited pages, search queries, or cookies when using private tabs.\n\nSwipe left and right anywhere to navigate history effortlessly.",
+                                        color = Color(0xFFC084FC).copy(alpha = 0.85f),
+                                        fontSize = 12.sp,
+                                        textAlign = TextAlign.Center,
+                                        lineHeight = 17.sp
+                                    )
+
+                                    Spacer(modifier = Modifier.height(20.dp))
+
+                                    Button(
+                                        onClick = {
+                                            addNewTab(isIncognito = true)
                                             showTabsSheet = false
                                         },
-                                    shape = RoundedCornerShape(16.dp),
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = if (isActive) Color(0xFF1E2438) else Color(0xFF1C1F2C)
-                                    ),
-                                    border = BorderStroke(
-                                        width = if (isActive) 2.dp else 1.dp,
-                                        color = if (isActive) Color(0xFF64B5F6) else Color(0xFF2E3346)
-                                    )
-                                ) {
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .padding(10.dp),
-                                        verticalArrangement = Arrangement.SpaceBetween
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF9333EA))
                                     ) {
-                                        // Card Top: Icon, Domain, Close Button
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
+                                        Icon(
+                                            imageVector = Icons.Default.Add,
+                                            contentDescription = "New Private Tab",
+                                            modifier = Modifier.size(16.dp),
+                                            tint = Color.White
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Open Private Tab", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+                                    }
+                                }
+                            }
+                        } else {
+                            // Grid of Tabs
+                            LazyVerticalGrid(
+                                columns = GridCells.Adaptive(minSize = 145.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                items(displayedTabs, key = { it.id }) { tab ->
+                                    val isActive = tab.id == activeTabId
+                                    val domain = runCatching { Uri.parse(tab.url).host }.getOrNull().orEmpty()
+                                    val isComicSite = domain.contains("comix") || domain.contains("manga")
+
+                                    Card(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(140.dp)
+                                            .clickable {
+                                                selectTab(tab.id)
+                                                showTabsSheet = false
+                                            },
+                                        shape = RoundedCornerShape(16.dp),
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = if (tab.isIncognito) {
+                                                if (isActive) Color(0xFF2E1065) else Color(0xFF1B0E2B)
+                                            } else {
+                                                if (isActive) Color(0xFF1E2438) else Color(0xFF1C1F2C)
+                                            }
+                                        ),
+                                        border = BorderStroke(
+                                            width = if (isActive) 2.dp else 1.dp,
+                                            color = if (tab.isIncognito) {
+                                                if (isActive) Color(0xFFA855F7) else Color(0xFF4C1D95)
+                                            } else {
+                                                if (isActive) Color(0xFF64B5F6) else Color(0xFF2E3346)
+                                            }
+                                        )
+                                    ) {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .padding(10.dp),
+                                            verticalArrangement = Arrangement.SpaceBetween
                                         ) {
+                                            // Card Top: Icon, Domain, Close Button
                                             Row(
-                                                modifier = Modifier.weight(1f),
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
-                                                Text(
-                                                    text = if (isComicSite) "📚" else "🌐",
-                                                    fontSize = 13.sp
-                                                )
-                                                Spacer(modifier = Modifier.width(4.dp))
-                                                Text(
-                                                    text = domain.ifBlank { "Home" },
-                                                    color = Color(0xFF90A4AE),
-                                                    fontSize = 11.sp,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                            }
-
-                                            // Close Tab button
-                                            IconButton(
-                                                onClick = {
-                                                    closeTab(tab.id)
-                                                },
-                                                modifier = Modifier.size(24.dp)
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Close,
-                                                    contentDescription = "Close tab",
-                                                    tint = Color.Gray,
-                                                    modifier = Modifier.size(16.dp)
-                                                )
-                                            }
-                                        }
-
-                                        // Card Middle: Title & Active Badge
-                                        Column(modifier = Modifier.weight(1f, fill = false)) {
-                                            Text(
-                                                text = tab.title.ifBlank { "New Tab" },
-                                                color = Color.White,
-                                                fontSize = 13.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                maxLines = 2,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                            if (isActive) {
-                                                Spacer(modifier = Modifier.height(4.dp))
-                                                Box(
-                                                    modifier = Modifier
-                                                        .clip(RoundedCornerShape(8.dp))
-                                                        .background(Color(0xFF1E88E5))
-                                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                                Row(
+                                                    modifier = Modifier.weight(1f),
+                                                    verticalAlignment = Alignment.CenterVertically
                                                 ) {
                                                     Text(
-                                                        text = "ACTIVE",
-                                                        color = Color.White,
-                                                        fontSize = 9.sp,
-                                                        fontWeight = FontWeight.ExtraBold
+                                                        text = if (tab.isIncognito) "🕶️" else if (isComicSite) "📚" else "🌐",
+                                                        fontSize = 13.sp
+                                                    )
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                    Text(
+                                                        text = domain.ifBlank { if (tab.isIncognito) "Private" else "Home" },
+                                                        color = if (tab.isIncognito) Color(0xFFD8B4FE) else Color(0xFF90A4AE),
+                                                        fontSize = 11.sp,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                }
+
+                                                // Close Tab button
+                                                IconButton(
+                                                    onClick = {
+                                                        closeTab(tab.id)
+                                                    },
+                                                    modifier = Modifier.size(24.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Close,
+                                                        contentDescription = "Close tab",
+                                                        tint = Color.Gray,
+                                                        modifier = Modifier.size(16.dp)
                                                     )
                                                 }
                                             }
-                                        }
 
-                                        // Card Bottom: URL preview
-                                        Text(
-                                            text = tab.url,
-                                            color = Color.DarkGray,
-                                            fontSize = 10.sp,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
+                                            // Card Middle: Title & Active Badge
+                                            Column(modifier = Modifier.weight(1f, fill = false)) {
+                                                Text(
+                                                    text = tab.title.ifBlank { if (tab.isIncognito) "Private Tab" else "New Tab" },
+                                                    color = Color.White,
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    maxLines = 2,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                if (isActive) {
+                                                    Spacer(modifier = Modifier.height(4.dp))
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .clip(RoundedCornerShape(8.dp))
+                                                            .background(
+                                                                if (tab.isIncognito) Color(0xFF7E22CE) else Color(0xFF1E88E5)
+                                                            )
+                                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                                    ) {
+                                                        Text(
+                                                            text = if (tab.isIncognito) "🕶️ ACTIVE" else "ACTIVE",
+                                                            color = Color.White,
+                                                            fontSize = 9.sp,
+                                                            fontWeight = FontWeight.ExtraBold
+                                                        )
+                                                    }
+                                                }
+                                            }
+
+                                            // Card Bottom: URL preview
+                                            Text(
+                                                text = if (tab.url == AppPreferences.DEFAULT_HOME_URL || tab.url == "about:home") "about:home" else tab.url,
+                                                color = if (tab.isIncognito) Color(0xFFA855F7).copy(alpha = 0.7f) else Color.DarkGray,
+                                                fontSize = 10.sp,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -2079,27 +2283,33 @@ fun ReaderScreen(
 
                         Spacer(modifier = Modifier.height(12.dp))
 
-                        // Bottom New Tab button
+                        // Bottom Action Button: + New Tab (or New Private Tab)
                         Button(
                             onClick = {
-                                addNewTab()
+                                if (tabFilter == "private") {
+                                    addNewTab(isIncognito = true)
+                                } else {
+                                    addNewTab(isIncognito = false)
+                                }
                                 showTabsSheet = false
                             },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(46.dp),
                             shape = RoundedCornerShape(14.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2979FF))
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (tabFilter == "private") Color(0xFF9333EA) else Color(0xFF2979FF)
+                            )
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Add,
-                                contentDescription = "New Tab",
+                                contentDescription = if (tabFilter == "private") "New Private Tab" else "New Tab",
                                 modifier = Modifier.size(18.dp),
                                 tint = Color.White
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "New Tab",
+                                text = if (tabFilter == "private") "New Private Tab" else "New Tab",
                                 color = Color.White,
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold
@@ -2118,6 +2328,7 @@ fun ReaderScreen(
 @Composable
 private fun TabBadgeButton(
     tabCount: Int,
+    isIncognito: Boolean = false,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -2130,15 +2341,19 @@ private fun TabBadgeButton(
                 .size(24.dp)
                 .border(
                     width = 1.8.dp,
-                    color = Color.White,
+                    color = if (isIncognito) Color(0xFFA855F7) else Color.White,
+                    shape = RoundedCornerShape(6.dp)
+                )
+                .background(
+                    if (isIncognito) Color(0xFF581C87).copy(alpha = 0.4f) else Color.Transparent,
                     shape = RoundedCornerShape(6.dp)
                 ),
             contentAlignment = Alignment.Center
         ) {
             Text(
-                text = if (tabCount > 99) "99+" else tabCount.toString(),
-                color = Color.White,
-                fontSize = if (tabCount > 9) 10.sp else 12.sp,
+                text = if (isIncognito) "🕶️" else (if (tabCount > 99) "99+" else tabCount.toString()),
+                color = if (isIncognito) Color(0xFFE9D5FF) else Color.White,
+                fontSize = if (isIncognito) 10.sp else (if (tabCount > 9) 10.sp else 12.sp),
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
                 lineHeight = 12.sp

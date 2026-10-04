@@ -42,6 +42,9 @@ class ComicWebView @JvmOverloads constructor(
     var onScrollDirectionChanged: ((isScrollingDown: Boolean) -> Unit)? = null
     var onTouchFocus: (() -> Unit)? = null
     var onNewTabRequested: ((String) -> Unit)? = null
+    var onSwipeBackToHome: (() -> Unit)? = null
+    var onSwipeBack: (() -> Unit)? = null
+    var onSwipeForward: (() -> Unit)? = null
 
     private var isInvertedMode: Boolean = false
     private var downX = 0f
@@ -308,9 +311,35 @@ class ComicWebView @JvmOverloads constructor(
                     requestFocus()
                     requestFocusFromTouch()
                 }
-                val dx = Math.abs(event.x - downX)
-                val dy = Math.abs(event.y - downY)
+                val deltaX = event.x - downX
+                val deltaY = Math.abs(event.y - downY)
                 val dt = System.currentTimeMillis() - downTime
+
+                // Horizontal swipe gesture navigation (Back / Forward)
+                val isHorizontalSwipe = Math.abs(deltaX) > 110 && deltaY < Math.abs(deltaX) * 0.65f && dt in 50..650
+                if (isHorizontalSwipe) {
+                    if (deltaX > 0) {
+                        // Swiped right -> Go Back
+                        if (canGoBack()) {
+                            goBack()
+                            onSwipeBack?.invoke()
+                            return true
+                        } else {
+                            onSwipeBackToHome?.invoke()
+                            return true
+                        }
+                    } else {
+                        // Swiped left -> Go Forward
+                        if (canGoForward()) {
+                            goForward()
+                            onSwipeForward?.invoke()
+                            return true
+                        }
+                    }
+                }
+
+                val dx = Math.abs(deltaX)
+                val dy = deltaY
 
                 // If it was a quick tap with minimal movement (< 25px, < 300ms)
                 if (dx < 25 && dy < 25 && dt < 300) {
@@ -370,6 +399,18 @@ class ComicWebView @JvmOverloads constructor(
         // Use smooth scroll animation in JS for maximum 120/144/165Hz fluidity
         val js = "window.scrollBy({ top: $dy, left: $dx, behavior: 'smooth' });"
         evaluateJavascript(js, null)
+    }
+
+    /**
+     * Configures privacy settings for private / incognito browsing tabs.
+     */
+    fun configureIncognito(isIncognito: Boolean) {
+        if (isIncognito) {
+            settings.cacheMode = WebSettings.LOAD_NO_CACHE
+            settings.saveFormData = false
+            clearHistory()
+            clearFormData()
+        }
     }
 
     /**

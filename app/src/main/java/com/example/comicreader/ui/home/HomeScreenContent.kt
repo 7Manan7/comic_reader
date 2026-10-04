@@ -94,6 +94,7 @@ fun HomeScreenContent(
     onNavigate: (url: String, title: String) -> Unit,
     onOpenInNewTab: (url: String, title: String) -> Unit,
     onOpenHistory: () -> Unit,
+    isIncognito: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -105,7 +106,7 @@ fun HomeScreenContent(
 
     // Bookmarks and History
     var userBookmarks by remember { mutableStateOf(BookmarkManager.getBookmarks(context)) }
-    var recentHistory by remember { mutableStateOf(HistoryManager.getHistory(context).take(4)) }
+    var recentHistory by remember { mutableStateOf(if (isIncognito) emptyList() else HistoryManager.getHistory(context).take(4)) }
     var showAddBookmarkDialog by remember { mutableStateOf(false) }
     var newBookmarkTitle by remember { mutableStateOf("") }
     var newBookmarkUrl by remember { mutableStateOf("") }
@@ -157,7 +158,7 @@ fun HomeScreenContent(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFF0F1117))
+            .background(if (isIncognito) Color(0xFF0F0B14) else Color(0xFF0F1117))
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp, vertical = 20.dp),
         horizontalAlignment = Alignment.CenterHorizontally
@@ -173,10 +174,15 @@ fun HomeScreenContent(
                     .clip(RoundedCornerShape(16.dp))
                     .background(
                         Brush.linearGradient(
-                            listOf(Color(0xFF2563EB), Color(0xFF7C3AED))
+                            if (isIncognito) listOf(Color(0xFF7C3AED), Color(0xFF4C1D95))
+                            else listOf(Color(0xFF2563EB), Color(0xFF7C3AED))
                         )
                     )
-                    .border(1.5.dp, Color(0xFF60A5FA).copy(alpha = 0.5f), RoundedCornerShape(16.dp))
+                    .border(
+                        1.5.dp,
+                        if (isIncognito) Color(0xFFA855F7).copy(alpha = 0.5f) else Color(0xFF60A5FA).copy(alpha = 0.5f),
+                        RoundedCornerShape(16.dp)
+                    )
                     .padding(3.dp),
                 contentAlignment = Alignment.Center
             ) {
@@ -200,12 +206,12 @@ fun HomeScreenContent(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Surface(
-                        color = Color(0xFF1E3A8A),
+                        color = if (isIncognito) Color(0xFF581C87) else Color(0xFF1E3A8A),
                         shape = RoundedCornerShape(6.dp)
                     ) {
                         Text(
-                            text = "MANHWA",
-                            color = Color(0xFF93C5FD),
+                            text = if (isIncognito) "PRIVATE" else "MANHWA",
+                            color = if (isIncognito) Color(0xFFE9D5FF) else Color(0xFF93C5FD),
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
@@ -214,10 +220,44 @@ fun HomeScreenContent(
                 }
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text = "High-speed reader with AdBlock & 165Hz display",
-                    color = Color(0xFF94A3B8),
+                    text = if (isIncognito) "Incognito mode: no history or cookies saved" else "High-speed reader with AdBlock & 165Hz display",
+                    color = if (isIncognito) Color(0xFFC084FC) else Color(0xFF94A3B8),
                     fontSize = 12.sp
                 )
+            }
+        }
+
+        if (isIncognito) {
+            Spacer(modifier = Modifier.height(14.dp))
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1528)),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, Color(0xFF6B21A8).copy(alpha = 0.6f))
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(text = "🕶️", fontSize = 28.sp)
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            text = "Private Browsing Active",
+                            color = Color(0xFFE9D5FF),
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Kuro Reader won't save reading history, cache, or cookies in this tab.",
+                            color = Color(0xFFC084FC),
+                            fontSize = 11.sp,
+                            lineHeight = 15.sp
+                        )
+                    }
+                }
             }
         }
 
