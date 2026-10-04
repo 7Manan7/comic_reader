@@ -102,7 +102,7 @@ app/src/main/java/com/example/comicreader/
 ├── MainActivity.kt               # Entry activity, window insets, volume key scrolling
 ├── adblock/
 │   ├── AdBlockEngine.kt          # Host matching, cosmetic CSS filtering, anti-popup JS
-│   └── AdBlockListManager.kt     # Multi-list downloading, GZIP extraction, 16 filter lists
+│   └── AdBlockListManager.kt     # Multi-list downloading, GZIP extraction, 15 filter lists
 ├── data/
 │   ├── BookmarkManager.kt        # Persistent bookmarks (Comix, MangaFreak, custom sites)
 │   ├── HistoryManager.kt         # Browsing & reading history storage

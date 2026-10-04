@@ -231,6 +231,16 @@ object EasyListParser {
         return pattern.trim().replace("^", "").replace("*", "").lowercase(Locale.ROOT)
     }
 
+    private val adTokenRegex = Regex("""(^|[/_.\-?&=])ads?([/_.\-?&=]|$)""")
+
+    private val adKeywords = listOf(
+        "pagead", "adserver", "adsystem", "popunder", "popup", "pop_ad", "banner",
+        "vignette", "telemetry", "analytics", "tracker", "pixel",
+        "advert", "monetag", "adsterra", "clickadu", "exoclick",
+        "propeller", "juicyads", "affiliate", "miner",
+        "exploit", "malware", "trojan", ".exe", ".bin", ".apk", ".sh", ".elf"
+    )
+
     /**
      * Ensures path patterns target actual ad/tracker/malware endpoints and cannot
      * accidentally block legitimate comic chapter or image paths.
@@ -245,20 +255,12 @@ object EasyListParser {
             "chapter", "manga", "comic", "page", "image", "upload", "view", "read",
             "cdn", "content", "asset", "static", "media", "thumb", "cover"
         )
-        if (forbiddenSubstrings.any { lower.contains(it) }) {
+        if (forbiddenSubstrings.any { lower.contains(it) && !(it == "page" && lower.contains("pagead")) }) {
             return false
         }
 
         // Must explicitly contain an ad, popup, tracking, or malware marker
-        val adKeywords = listOf(
-            "/ad", "ad_", "_ad", "-ad", "ad-", "ad.", "/ads", "pagead",
-            "adserver", "adsystem", "popunder", "popup", "pop_ad", "banner",
-            "vignette", "telemetry", "analytics", "tracker", "pixel",
-            "advert", "monetag", "adsterra", "clickadu", "exoclick",
-            "propeller", "juicyads", "affiliate", "payload", "miner",
-            "exploit", "malware", "trojan", ".exe", ".bin", ".apk", ".sh", ".elf"
-        )
-        return adKeywords.any { lower.contains(it) }
+        return adTokenRegex.containsMatchIn(lower) || adKeywords.any { lower.contains(it) }
     }
 
     private fun isValidDomain(domain: String): Boolean {

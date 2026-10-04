@@ -109,11 +109,8 @@ class MainActivity : ComponentActivity() {
     /**
      * Intercepts Volume Up and Down keys for one-handed comic page scrolling.
      */
-    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        val action = event.action
-        val keyCode = event.keyCode
-
-        if (isVolumeScrollEnabled && activeWebView != null && action == KeyEvent.ACTION_DOWN) {
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        if (isVolumeScrollEnabled && activeWebView != null) {
             when (keyCode) {
                 KeyEvent.KEYCODE_VOLUME_DOWN -> {
                     activeWebView?.scrollPageDown()
@@ -125,7 +122,14 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-        return super.dispatchKeyEvent(event)
+        return super.onKeyDown(keyCode, event)
+    }
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent?): Boolean {
+        if (isVolumeScrollEnabled && (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN || keyCode == KeyEvent.KEYCODE_VOLUME_UP)) {
+            return true
+        }
+        return super.onKeyUp(keyCode, event)
     }
 
     override fun onPause() {
@@ -142,6 +146,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         activeWebView?.let {
+            (it.parent as? android.view.ViewGroup)?.removeView(it)
             it.stopLoading()
             it.destroy()
         }

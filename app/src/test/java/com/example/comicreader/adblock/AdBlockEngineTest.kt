@@ -171,40 +171,44 @@ class AdBlockEngineTest {
     }
 
     @Test
-    fun test16FilterListsCoverage() {
+    fun testFilterListsCoverage() {
         val lists = AdBlockListManager.ALL_LISTS
-        assertEquals(16, lists.size)
+        assertEquals(15, lists.size)
 
-        // Verify uBlock Origin Built-in Filters (5 lists)
-        val ublockLists = lists.filter { it.category == FilterListCategory.UBLOCK_ASSETS }
-        assertEquals(5, ublockLists.size)
-        val ublockIds = ublockLists.map { it.id }
-        assertTrue(ublockIds.contains("ublock-filters"))
-        assertTrue(ublockIds.contains("ublock-badware"))
-        assertTrue(ublockIds.contains("ublock-privacy"))
-        assertTrue(ublockIds.contains("ublock-quick-fixes"))
-        assertTrue(ublockIds.contains("ublock-unbreak"))
+        // Verify Default (4 lists)
+        val defaultLists = lists.filter { it.category == FilterListCategory.DEFAULT }
+        assertEquals(4, defaultLists.size)
+        val defaultIds = defaultLists.map { it.id }
+        assertTrue(defaultIds.contains("easylist"))
+        assertTrue(defaultIds.contains("easyprivacy"))
+        assertTrue(defaultIds.contains("peter-lowe"))
+        assertTrue(defaultIds.contains("ublock-filters"))
 
-        // Verify Standard Default Third-Party Lists (4 lists)
-        val standardLists = lists.filter { it.category == FilterListCategory.STANDARD_DEFAULTS }
-        assertEquals(4, standardLists.size)
-        val standardIds = standardLists.map { it.id }
-        assertTrue(standardIds.contains("easylist"))
-        assertTrue(standardIds.contains("easyprivacy"))
-        assertTrue(standardIds.contains("peter-lowe"))
-        assertTrue(standardIds.contains("urlhaus"))
+        // Verify Privacy (2 lists)
+        val privacyLists = lists.filter { it.category == FilterListCategory.PRIVACY }
+        assertEquals(2, privacyLists.size)
+        val privacyIds = privacyLists.map { it.id }
+        assertTrue(privacyIds.contains("url-tracking-protection"))
+        assertTrue(privacyIds.contains("block-lan"))
 
-        // Verify Optional Common Lists (7 lists)
-        val optionalLists = lists.filter { it.category == FilterListCategory.OPTIONAL_COMMON }
-        assertEquals(7, optionalLists.size)
-        val optionalIds = optionalLists.map { it.id }
-        assertTrue(optionalIds.contains("ublock-annoyances"))
-        assertTrue(optionalIds.contains("fanboy-cookiemonster"))
-        assertTrue(optionalIds.contains("fanboy-annoyance"))
-        assertTrue(optionalIds.contains("fanboy-social"))
-        assertTrue(optionalIds.contains("adguard-base"))
-        assertTrue(optionalIds.contains("adguard-tracking"))
-        assertTrue(optionalIds.contains("adguard-mobile"))
+        // Verify Malware protection, security (2 lists)
+        val malwareLists = lists.filter { it.category == FilterListCategory.MALWARE }
+        assertEquals(2, malwareLists.size)
+        val malwareIds = malwareLists.map { it.id }
+        assertTrue(malwareIds.contains("ublock-badware"))
+        assertTrue(malwareIds.contains("malicious-url-blocklist"))
+
+        // Verify Annoyances (7 lists)
+        val annoyancesLists = lists.filter { it.category == FilterListCategory.ANNOYANCES }
+        assertEquals(7, annoyancesLists.size)
+        val annoyancesIds = annoyancesLists.map { it.id }
+        assertTrue(annoyancesIds.contains("annoyances-ai"))
+        assertTrue(annoyancesIds.contains("annoyances-cookies"))
+        assertTrue(annoyancesIds.contains("annoyances-notifications"))
+        assertTrue(annoyancesIds.contains("annoyances-others"))
+        assertTrue(annoyancesIds.contains("annoyances-overlays"))
+        assertTrue(annoyancesIds.contains("annoyances-social"))
+        assertTrue(annoyancesIds.contains("annoyances-widgets"))
     }
 
     @Test
@@ -228,5 +232,35 @@ class AdBlockEngineTest {
         assertTrue(AdBlockEngine.isAd("https://alwingulla.com/script.js", currentHost = "comix.to"))
         assertTrue(AdBlockEngine.isAd("https://adsterra.com/banner.js", currentHost = "mangafreak.me"))
         assertTrue(AdBlockEngine.isAd("https://monetag.com/popunder", currentHost = "mangakatana.com"))
+    }
+
+    @Test
+    fun testExtractHostWithoutTrailingSlash() {
+        // URLs with query parameter or fragment immediately following host without slash
+        assertTrue(AdBlockEngine.isAd("https://popads.net?click=123"))
+        assertTrue(AdBlockEngine.isAd("https://popads.net#overlay"))
+        assertTrue(AdBlockEngine.isAd("https://popads.net:8443?id=test"))
+        assertFalse(AdBlockEngine.isAd("https://comix.to?search=one-piece", currentHost = "comix.to"))
+    }
+
+    @Test
+    fun testSafeAdPatternTokenBoundary() {
+        // Words ending with "ad" or containing "ad" as substring should NOT be treated as ad rules
+        val filterContent = """
+            /download-button/
+            /load-more-items/
+            /thread-view/
+            /valid-upload/
+            /pagead/ad_banner.js
+            /popup_overlay/
+        """.trimIndent()
+
+        val parsed = EasyListParser.parse(filterContent.lineSequence())
+        assertFalse(parsed.pathPatterns.any { it.contains("download") })
+        assertFalse(parsed.pathPatterns.any { it.contains("load-more") })
+        assertFalse(parsed.pathPatterns.any { it.contains("thread-view") })
+        assertFalse(parsed.pathPatterns.any { it.contains("valid-upload") })
+        assertTrue(parsed.pathPatterns.any { it.contains("pagead") })
+        assertTrue(parsed.pathPatterns.any { it.contains("popup_overlay") })
     }
 }

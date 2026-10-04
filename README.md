@@ -11,26 +11,26 @@ A high-performance Android browser app engineered specifically for reading onlin
   - Automatically locks window attributes (`preferredDisplayModeId` & `preferredRefreshRate`) to the highest hardware refresh rate (120Hz, 144Hz, 165Hz) for ultra-fluid, tear-free scrolling.
   - In-app refresh rate selector: switch between **Auto (Max)**, **60Hz** (battery saver), **90Hz**, **120Hz**, **144Hz**, and **165Hz**.
 
-- **🛡️ Built-in Multi-List AdBlock & Security Engine (16 Filter Lists across 3 Categories)**:
-  - **uBlock Origin Built-in Filters (uAssets)**:
-    - `filters.txt` (uBlock Base ad & popunder rules)
-    - `badware.txt` (Badware, scareware, and mobile clickjacking protection)
-    - `privacy.txt` (Privacy and telemetry blocking)
-    - `quick-fixes.txt` (Rapid circumvention response rules)
-    - `unbreak.txt` (Site fixes for broken comic readers)
-  - **Standard Default Third-Party Lists**:
+- **🛡️ Built-in Multi-List AdBlock & Security Engine (15 Filter Lists across 4 Categories)**:
+  - **Default (4/4)**:
     - `EasyList` (Primary ad-blocking list: banners, popups, video ads)
     - `EasyPrivacy` (Tracker, analytics, and beacon blocking)
-    - `Peter Lowe’s Ad and Tracking server list` (Hosts-format ad/spyware servers)
-    - `URLhaus Malicious URLs` (Malware & exploit protection)
-  - **Optional Common Lists (uBO & AdGuard)**:
-    - `uBlock filters – Annoyances` (Overlays, popups, and floating spam)
-    - `EasyList – Cookie Notices` (Fanboy's Cookie Monster list)
-    - `Fanboy’s Annoyance List` (Popups, newsletters, in-page notifications)
-    - `Fanboy’s Social Blocking List` (Social media trackers and widgets)
-    - `AdGuard Base Filter` (Advanced ad blocking optimized for Chromium)
-    - `AdGuard Tracking Protection` (Comprehensive telemetry filters)
-    - `AdGuard Mobile Ads` (Mobile-specific redirect and banner blocking)
+    - `Peter Lowe – Ads, trackers, and more` (Hosts-format ad/spyware servers)
+    - `uBlock filters – Ads, trackers, and more` (uBlock Origin Base ad & popunder rules)
+  - **Privacy (1/2)**:
+    - `AdGuard/uBO – URL Tracking Protection` (Strips URL tracking parameters and telemetry)
+    - `Block Outsider Intrusion into LAN` (Prevents external web requests into localhost and LAN)
+  - **Malware protection, security (2/2)**:
+    - `uBlock filters – Badware risks` (Badware, scareware, and mobile clickjacking protection)
+    - `Malicious URL Blocklist` (Actively updated list of malware and exploit domains)
+  - **Annoyances (6/7)**:
+    - `EasyList – AI Widgets` (Blocks AI summaries and floating assist widgets)
+    - `EasyList/uBO – Cookie Notices` (Removes GDPR/CCPA cookie consent dialogs)
+    - `EasyList – Notifications` (Blocks push notification prompts and subscription modals)
+    - `EasyList – Other Annoyances` (Page irritations, surveys, self-promos, and visual nags)
+    - `EasyList/uBO – Overlay Notices` (Newsletter overlays, anti-adblock modals, and sign-up paywalls)
+    - `EasyList – Social Widgets` (Social sharing buttons, follower counts, and comment widgets)
+    - `EasyList – Chat Widgets` (Floating customer service chat bubbles and support popups)
   - **Hardened Anti-Redirect & Anti-Popup Protection**:
     - Full `shouldOverrideUrlLoading` interception blocking top-level ad navigations and malicious external schemes (`intent:`, `market:`, `vnd.youtube:`).
     - Early script injection (`ANTI_POPUP_JS`) at `onPageStarted` neutralizing `window.open` and sweeping invisible clickjack overlays.
@@ -65,7 +65,7 @@ A high-performance Android browser app engineered specifically for reading onlin
   - Readily accessible in two places:
     1. **Top Bar Shield Badge (`🛡️`)**: Tap the shield icon to open the AdBlock dialog and tap **"🔄 Refresh & Update Filter Lists Now"**.
     2. **Reader Settings (`⚙️`)**: Scroll to the AdBlock section and tap **"Update Lists Now"**.
-  - Downloads and parses latest filter rules concurrently across all 16 filter sources.
+  - Downloads and parses latest filter rules concurrently across all 15 filter sources.
 
 - **📖 Comic Reading UX**:
   - **Hardware Volume Button Navigation**: Scroll pages up/down using the device's physical volume rocker for easy one-handed reading.

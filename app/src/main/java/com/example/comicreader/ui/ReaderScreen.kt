@@ -334,6 +334,9 @@ fun ReaderScreen(
 
                         onTitleReceived = { title ->
                             pageTitle = title
+                            if (currentUrl.startsWith("http") && title.isNotBlank()) {
+                                historyList = HistoryManager.addHistoryEntry(context, title, currentUrl)
+                            }
                         }
 
                         onUrlChanged = { newUrl ->
@@ -1026,7 +1029,7 @@ fun ReaderScreen(
                                                 tint = Color.White
                                             )
                                             Spacer(modifier = Modifier.width(6.dp))
-                                            Text("🔄 Update 16 Filter Lists Now", fontSize = 12.sp, color = Color.White)
+                                            Text("🔄 Update Filter Lists Now", fontSize = 12.sp, color = Color.White)
                                         }
                                     }
 
@@ -1038,7 +1041,7 @@ fun ReaderScreen(
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
                                         Text(
-                                            text = if (showFilterListDetails) "Hide Filter Lists ▲" else "View / Toggle 16 Filter Lists ▼",
+                                            text = if (showFilterListDetails) "Hide Filter Lists ▲" else "View / Toggle Filter Lists (${adBlockListsStatus.activeListCount}/${AdBlockListManager.ALL_LISTS.size}) ▼",
                                             color = Color(0xFF64B5F6),
                                             fontSize = 12.sp
                                         )
@@ -1047,13 +1050,28 @@ fun ReaderScreen(
                                     if (showFilterListDetails) {
                                         FilterListCategory.entries.forEach { category ->
                                             val categoryLists = AdBlockListManager.ALL_LISTS.filter { it.category == category }
+                                            val activeCategoryCount = categoryLists.count { listDef ->
+                                                adBlockListsStatus.listItems[listDef.id]?.isEnabled ?: listDef.isEnabledByDefault
+                                            }
                                             Spacer(modifier = Modifier.height(8.dp))
-                                            Text(
-                                                text = category.title,
-                                                fontWeight = FontWeight.Bold,
-                                                color = Color(0xFF90CAF9),
-                                                fontSize = 12.sp
-                                            )
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(
+                                                    text = category.title,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color(0xFF90CAF9),
+                                                    fontSize = 12.sp
+                                                )
+                                                Text(
+                                                    text = "$activeCategoryCount/${categoryLists.size}",
+                                                    color = Color(0xFF81C784),
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.SemiBold
+                                                )
+                                            }
                                             categoryLists.forEach { listDef ->
                                                 val itemStatus = adBlockListsStatus.listItems[listDef.id]
                                                 val isChecked = itemStatus?.isEnabled ?: listDef.isEnabledByDefault
@@ -1767,6 +1785,9 @@ fun ReaderScreen(
  */
 private fun normalizeUrl(input: String): String {
     val trimmed = input.trim()
+    if (trimmed.isEmpty()) {
+        return AppPreferences.DEFAULT_HOME_URL
+    }
     if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
         return trimmed
     }

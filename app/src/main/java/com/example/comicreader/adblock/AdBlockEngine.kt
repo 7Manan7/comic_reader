@@ -329,9 +329,18 @@ object AdBlockEngine {
             else -> url
         }
         val slashIndex = withoutProtocol.indexOf('/')
-        val hostAndPort = if (slashIndex != -1) withoutProtocol.substring(0, slashIndex) else withoutProtocol
+        val questionIndex = withoutProtocol.indexOf('?')
+        val hashIndex = withoutProtocol.indexOf('#')
+
+        var endHost = withoutProtocol.length
+        if (slashIndex != -1 && slashIndex < endHost) endHost = slashIndex
+        if (questionIndex != -1 && questionIndex < endHost) endHost = questionIndex
+        if (hashIndex != -1 && hashIndex < endHost) endHost = hashIndex
+
+        val hostAndPort = withoutProtocol.substring(0, endHost)
         val colonIndex = hostAndPort.indexOf(':')
-        return if (colonIndex != -1) hostAndPort.substring(0, colonIndex) else hostAndPort
+        val host = if (colonIndex != -1) hostAndPort.substring(0, colonIndex) else hostAndPort
+        return host.trim().lowercase(Locale.ROOT).ifEmpty { null }
     }
 
     /**

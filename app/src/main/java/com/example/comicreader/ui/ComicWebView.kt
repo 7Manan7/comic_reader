@@ -239,11 +239,17 @@ class ComicWebView @JvmOverloads constructor(
                 val currentHost = runCatching { Uri.parse(this@ComicWebView.url).host }.getOrNull()
 
                 val tempWebView = WebView(context)
+                val cleanupRunnable = Runnable {
+                    runCatching { tempWebView.destroy() }
+                }
+                tempWebView.postDelayed(cleanupRunnable, 15000L)
+
                 tempWebView.webViewClient = object : WebViewClient() {
                     override fun shouldOverrideUrlLoading(
                         targetView: WebView?,
                         request: WebResourceRequest?
                     ): Boolean {
+                        tempWebView.removeCallbacks(cleanupRunnable)
                         val targetUri = request?.url ?: run {
                             targetView?.destroy()
                             return true
@@ -298,6 +304,7 @@ class ComicWebView @JvmOverloads constructor(
                 val dx = Math.abs(event.x - downX)
                 val dy = Math.abs(event.y - downY)
                 val dt = System.currentTimeMillis() - downTime
+
                 // If it was a quick tap with minimal movement (< 25px, < 300ms)
                 if (dx < 25 && dy < 25 && dt < 300) {
                     val hitType = hitTestResult.type
@@ -321,6 +328,7 @@ class ComicWebView @JvmOverloads constructor(
                                               hitType == HitTestResult.PHONE_TYPE ||
                                               hitType == HitTestResult.EMAIL_TYPE
                         if (!isNavigableLink) {
+                            performClick()
                             onSingleTap?.invoke()
                         }
                     }
@@ -328,6 +336,11 @@ class ComicWebView @JvmOverloads constructor(
             }
         }
         return super.onTouchEvent(event)
+    }
+
+    override fun performClick(): Boolean {
+        super.performClick()
+        return true
     }
 
     /**

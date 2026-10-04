@@ -22,17 +22,21 @@ import java.util.Locale
 import java.util.zip.GZIPInputStream
 
 enum class FilterListCategory(val title: String, val subtitle: String) {
-    UBLOCK_ASSETS(
-        title = "uBlock Origin Built-in Filters (uAssets)",
-        subtitle = "Maintained by uBlock Origin for ads, popups, telemetry & anti-circumvention"
+    DEFAULT(
+        title = "Default",
+        subtitle = "Core standard blocking rules for ads, popups, and trackers"
     ),
-    STANDARD_DEFAULTS(
-        title = "Standard Default Third-Party Lists",
-        subtitle = "Industry-standard blocking lists enabled in default uBlock Origin installations"
+    PRIVACY(
+        title = "Privacy",
+        subtitle = "URL parameter stripping and intrusion protection"
     ),
-    OPTIONAL_COMMON(
-        title = "Optional Common Lists (uBO & AdGuard)",
-        subtitle = "Annoyances, cookie notices, social widgets, and mobile ads"
+    MALWARE(
+        title = "Malware protection, security",
+        subtitle = "Malware domains, badware risks, and rogue redirect traps"
+    ),
+    ANNOYANCES(
+        title = "Annoyances",
+        subtitle = "Cookie notices, popups, overlays, notifications, social and AI widgets"
     )
 }
 
@@ -78,10 +82,11 @@ data class AdBlockListsStatus(
 }
 
 /**
- * Manages downloading, caching, per-list toggling, and updates for 16 filter lists across:
- * 1. uBlock Origin Built-in Filters (uAssets)
- * 2. Standard Default Third-Party Lists
- * 3. Optional Common Lists (uBO & AdGuard)
+ * Manages downloading, caching, per-list toggling, and updates for 15 filter lists across:
+ * 1. Default (4 lists)
+ * 2. Privacy (2 lists)
+ * 3. Malware protection, security (2 lists)
+ * 4. Annoyances (7 lists)
  */
 object AdBlockListManager {
     private const val TAG = "AdBlockListManager"
@@ -90,161 +95,165 @@ object AdBlockListManager {
     private const val KEY_TIMESTAMP_PREFIX = "filter_ts_"
 
     val ALL_LISTS = listOf(
-        // Group 1: uBlock Origin Built-in Filters (uAssets)
-        FilterListDefinition(
-            id = "ublock-filters",
-            name = "uBlock filters (Base)",
-            description = "Core uBlock Origin ad & popunder blocking rules",
-            category = FilterListCategory.UBLOCK_ASSETS,
-            primaryUrl = "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/filters.txt",
-            filename = "ublock_filters.txt",
-            isEnabledByDefault = true
-        ),
-        FilterListDefinition(
-            id = "ublock-badware",
-            name = "uBlock filters – Badware risks",
-            description = "Malware, scareware, and aggressive comic redirect traps",
-            category = FilterListCategory.UBLOCK_ASSETS,
-            primaryUrl = "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/badware.txt",
-            filename = "ublock_badware.txt",
-            isEnabledByDefault = true
-        ),
-        FilterListDefinition(
-            id = "ublock-privacy",
-            name = "uBlock filters – Privacy",
-            description = "Anti-telemetry and ad tracking servers",
-            category = FilterListCategory.UBLOCK_ASSETS,
-            primaryUrl = "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/privacy.txt",
-            filename = "ublock_privacy.txt",
-            isEnabledByDefault = true
-        ),
-        FilterListDefinition(
-            id = "ublock-quick-fixes",
-            name = "uBlock filters – Quick fixes",
-            description = "Rapid response to newly detected ad circumvention",
-            category = FilterListCategory.UBLOCK_ASSETS,
-            primaryUrl = "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/quick-fixes.txt",
-            filename = "ublock_quick_fixes.txt",
-            isEnabledByDefault = true
-        ),
-        FilterListDefinition(
-            id = "ublock-unbreak",
-            name = "uBlock filters – Unbreak",
-            description = "Fixes legitimate comic viewer sites broken by general rules",
-            category = FilterListCategory.UBLOCK_ASSETS,
-            primaryUrl = "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/unbreak.txt",
-            filename = "ublock_unbreak.txt",
-            isEnabledByDefault = true
-        ),
-
-        // Group 2: Standard Default Third-Party Lists
+        // Group 1: Default (4/4)
         FilterListDefinition(
             id = "easylist",
-            name = "EasyList (Primary ad-blocking)",
-            description = "Global ad banners, popups, and video overlays",
-            category = FilterListCategory.STANDARD_DEFAULTS,
-            primaryUrl = "https://easylist.to/easylist/easylist.txt",
-            backupUrl = "https://raw.githubusercontent.com/easylist/easylist/master/easylist/easylist_general_block.txt",
+            name = "EasyList",
+            description = "Primary ad-blocking filter list for banner, popup, and video ads",
+            category = FilterListCategory.DEFAULT,
+            primaryUrl = "https://ublockorigin.github.io/uAssets/thirdparties/easylist.txt",
+            backupUrl = "https://easylist.to/easylist/easylist.txt",
             filename = "easylist.txt",
             assetFallback = "adblock/easylist_baseline.txt",
             isEnabledByDefault = true
         ),
         FilterListDefinition(
             id = "easyprivacy",
-            name = "EasyPrivacy (Trackers & analytics)",
-            description = "Tracker, beacon, and analytics blocking",
-            category = FilterListCategory.STANDARD_DEFAULTS,
-            primaryUrl = "https://easylist.to/easylist/easyprivacy.txt",
-            backupUrl = "https://raw.githubusercontent.com/easylist/easylist/master/easyprivacy/easyprivacy_general_block.txt",
+            name = "EasyPrivacy",
+            description = "Blocks tracking scripts, web beacons, and analytics collectors",
+            category = FilterListCategory.DEFAULT,
+            primaryUrl = "https://ublockorigin.github.io/uAssets/thirdparties/easyprivacy.txt",
+            backupUrl = "https://easylist.to/easylist/easyprivacy.txt",
             filename = "easyprivacy.txt",
             assetFallback = "adblock/easyprivacy_baseline.txt",
             isEnabledByDefault = true
         ),
         FilterListDefinition(
             id = "peter-lowe",
-            name = "Peter Lowe’s Ad and Tracking List",
-            description = "Hosts-format ad & spyware hostnames",
-            category = FilterListCategory.STANDARD_DEFAULTS,
+            name = "Peter Lowe – Ads, trackers, and more",
+            description = "Authoritative list of ad and tracking server hostnames",
+            category = FilterListCategory.DEFAULT,
             primaryUrl = "https://pgl.yoyo.org/adservers/serverlist.php?hostformat=hosts&showintro=0&mimetype=plaintext",
-            backupUrl = "https://pgl.yoyo.org/as/serverlist",
+            backupUrl = "https://raw.githubusercontent.com/gorhill/uBlock/master/assets/thirdparties/pgl.yoyo.org/as/serverlist",
             filename = "peter_lowe.txt",
             assetFallback = "adblock/peter_lowe_baseline.txt",
             isEnabledByDefault = true
         ),
         FilterListDefinition(
-            id = "urlhaus",
-            name = "URLhaus Malicious URLs",
-            description = "Malware distribution and exploit URLs",
-            category = FilterListCategory.STANDARD_DEFAULTS,
-            primaryUrl = "https://curben.gitlab.io/malware-filter/urlhaus-filter-online.txt",
-            backupUrl = "https://malware-filter.gitlab.io/urlhaus-filter/urlhaus-filter-online.txt",
-            filename = "urlhaus.txt",
+            id = "ublock-filters",
+            name = "uBlock filters – Ads, trackers, and more",
+            description = "uBlock Origin specific rules for ads, circumventions, and trackers",
+            category = FilterListCategory.DEFAULT,
+            primaryUrl = "https://ublockorigin.github.io/uAssets/filters/filters.txt",
+            backupUrl = "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/filters.txt",
+            filename = "ublock_filters.txt",
+            isEnabledByDefault = true
+        ),
+
+        // Group 2: Privacy (1/2)
+        FilterListDefinition(
+            id = "url-tracking-protection",
+            name = "AdGuard/uBO – URL Tracking Protection",
+            description = "Strips tracking parameters and telemetry queries from links and URLs",
+            category = FilterListCategory.PRIVACY,
+            primaryUrl = "https://ublockorigin.github.io/uAssets/filters/privacy-removeparam.txt",
+            backupUrl = "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/privacy-removeparam.txt",
+            filename = "url_tracking_protection.txt",
+            isEnabledByDefault = true
+        ),
+        FilterListDefinition(
+            id = "block-lan",
+            name = "Block Outsider Intrusion into LAN",
+            description = "Prevents external websites from probing or attacking localhost and LAN addresses",
+            category = FilterListCategory.PRIVACY,
+            primaryUrl = "https://ublockorigin.github.io/uAssets/filters/lan-block.txt",
+            backupUrl = "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/lan-block.txt",
+            filename = "block_lan.txt",
+            isEnabledByDefault = false
+        ),
+
+        // Group 3: Malware protection, security (2/2)
+        FilterListDefinition(
+            id = "ublock-badware",
+            name = "uBlock filters – Badware risks",
+            description = "Aggressive comic redirect traps, fake download triggers, and rogue scripts",
+            category = FilterListCategory.MALWARE,
+            primaryUrl = "https://ublockorigin.github.io/uAssets/filters/badware.txt",
+            backupUrl = "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/badware.txt",
+            filename = "ublock_badware.txt",
+            isEnabledByDefault = true
+        ),
+        FilterListDefinition(
+            id = "malicious-url-blocklist",
+            name = "Malicious URL Blocklist",
+            description = "Actively updated list of domains distributing malware and exploit kits",
+            category = FilterListCategory.MALWARE,
+            primaryUrl = "https://malware-filter.gitlab.io/urlhaus-filter/urlhaus-filter-ag-online.txt",
+            backupUrl = "https://curben.gitlab.io/malware-filter/urlhaus-filter-online.txt",
+            filename = "malicious_urls.txt",
             assetFallback = "adblock/urlhaus_baseline.txt",
             isEnabledByDefault = true
         ),
 
-        // Group 3: Optional Common Lists in uBlock Origin
+        // Group 4: Annoyances (6/7)
         FilterListDefinition(
-            id = "ublock-annoyances",
-            name = "uBlock filters – Annoyances",
-            description = "Overlays, popups, and floating newsletter banners",
-            category = FilterListCategory.OPTIONAL_COMMON,
-            primaryUrl = "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/annoyances.txt",
-            filename = "ublock_annoyances.txt",
-            isEnabledByDefault = true
-        ),
-        FilterListDefinition(
-            id = "fanboy-cookiemonster",
-            name = "EasyList – Cookie Notices",
-            description = "Fanboy's Cookie Monster list to eliminate cookie consent dialogs",
-            category = FilterListCategory.OPTIONAL_COMMON,
-            primaryUrl = "https://secure.fanboy.co.nz/fanboy-cookiemonster.txt",
-            filename = "fanboy_cookiemonster.txt",
-            isEnabledByDefault = true
-        ),
-        FilterListDefinition(
-            id = "fanboy-annoyance",
-            name = "Fanboy’s Annoyance List",
-            description = "Popups, newsletters, in-page notifications, and spam",
-            category = FilterListCategory.OPTIONAL_COMMON,
-            primaryUrl = "https://secure.fanboy.co.nz/fanboy-annoyance.txt",
-            filename = "fanboy_annoyance.txt",
-            isEnabledByDefault = true
-        ),
-        FilterListDefinition(
-            id = "fanboy-social",
-            name = "Fanboy’s Social Blocking List",
-            description = "Third-party social widgets, like buttons, and share trackers",
-            category = FilterListCategory.OPTIONAL_COMMON,
-            primaryUrl = "https://easylist.to/easylist/fanboy-social.txt",
-            filename = "fanboy_social.txt",
+            id = "annoyances-ai",
+            name = "EasyList – AI Widgets",
+            description = "Blocks AI summaries, floating assist widgets, and AI generation bars",
+            category = FilterListCategory.ANNOYANCES,
+            primaryUrl = "https://ublockorigin.github.io/uAssets/thirdparties/easylist-ai.txt",
+            backupUrl = "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/thirdparties/easylist/easylist-ai.txt",
+            filename = "easylist_ai.txt",
             isEnabledByDefault = false
         ),
         FilterListDefinition(
-            id = "adguard-base",
-            name = "AdGuard Base Filter",
-            description = "Enhanced ad blocking optimized for uBlock/Chromium",
-            category = FilterListCategory.OPTIONAL_COMMON,
-            primaryUrl = "https://filters.adtidy.org/extension/ublock/filters/2_without_easylist.txt",
-            filename = "adguard_base.txt",
+            id = "annoyances-cookies",
+            name = "EasyList/uBO – Cookie Notices",
+            description = "Removes GDPR/CCPA cookie consent dialogs and modal consent walls",
+            category = FilterListCategory.ANNOYANCES,
+            primaryUrl = "https://ublockorigin.github.io/uAssets/thirdparties/easylist-cookies.txt",
+            backupUrl = "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/thirdparties/easylist/easylist-cookies.txt",
+            filename = "easylist_cookies.txt",
             isEnabledByDefault = true
         ),
         FilterListDefinition(
-            id = "adguard-tracking",
-            name = "AdGuard Tracking Protection",
-            description = "Comprehensive tracking and telemetry filter list",
-            category = FilterListCategory.OPTIONAL_COMMON,
-            primaryUrl = "https://filters.adtidy.org/extension/ublock/filters/3.txt",
-            filename = "adguard_tracking.txt",
+            id = "annoyances-notifications",
+            name = "EasyList – Notifications",
+            description = "Blocks website push notification prompts and subscription modals",
+            category = FilterListCategory.ANNOYANCES,
+            primaryUrl = "https://ublockorigin.github.io/uAssets/thirdparties/easylist-notifications.txt",
+            backupUrl = "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/thirdparties/easylist/easylist-notifications.txt",
+            filename = "easylist_notifications.txt",
             isEnabledByDefault = true
         ),
         FilterListDefinition(
-            id = "adguard-mobile",
-            name = "AdGuard Mobile Ads",
-            description = "Mobile-specific popup redirects and ad networks",
-            category = FilterListCategory.OPTIONAL_COMMON,
-            primaryUrl = "https://filters.adtidy.org/extension/ublock/filters/11.txt",
-            filename = "adguard_mobile.txt",
+            id = "annoyances-others",
+            name = "EasyList – Other Annoyances",
+            description = "Eliminates misc page irritations, surveys, self-promos, and visual nags",
+            category = FilterListCategory.ANNOYANCES,
+            primaryUrl = "https://ublockorigin.github.io/uAssets/thirdparties/easylist-annoyances.txt",
+            backupUrl = "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/thirdparties/easylist/easylist-annoyances.txt",
+            filename = "easylist_annoyances.txt",
+            isEnabledByDefault = true
+        ),
+        FilterListDefinition(
+            id = "annoyances-overlays",
+            name = "EasyList/uBO – Overlay Notices",
+            description = "Blocks newsletter overlays, anti-adblock modals, and sign-up paywalls",
+            category = FilterListCategory.ANNOYANCES,
+            primaryUrl = "https://ublockorigin.github.io/uAssets/thirdparties/easylist-newsletters.txt",
+            backupUrl = "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/thirdparties/easylist/easylist-newsletters.txt",
+            filename = "easylist_newsletters.txt",
+            isEnabledByDefault = true
+        ),
+        FilterListDefinition(
+            id = "annoyances-social",
+            name = "EasyList – Social Widgets",
+            description = "Hides social sharing buttons, follower counts, and comment widgets",
+            category = FilterListCategory.ANNOYANCES,
+            primaryUrl = "https://ublockorigin.github.io/uAssets/thirdparties/easylist-social.txt",
+            backupUrl = "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/thirdparties/easylist/easylist-social.txt",
+            filename = "easylist_social.txt",
+            isEnabledByDefault = true
+        ),
+        FilterListDefinition(
+            id = "annoyances-widgets",
+            name = "EasyList – Chat Widgets",
+            description = "Suppresses floating customer service chat bubbles and support popups",
+            category = FilterListCategory.ANNOYANCES,
+            primaryUrl = "https://ublockorigin.github.io/uAssets/thirdparties/easylist-chat.txt",
+            backupUrl = "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/thirdparties/easylist/easylist-chat.txt",
+            filename = "easylist_chat.txt",
             isEnabledByDefault = true
         )
     )
@@ -350,7 +359,7 @@ object AdBlockListManager {
             easyListRuleCount = listStatuses["easylist"]?.ruleCount ?: 0,
             easyPrivacyRuleCount = listStatuses["easyprivacy"]?.ruleCount ?: 0,
             peterLoweRuleCount = listStatuses["peter-lowe"]?.ruleCount ?: 0,
-            urlhausRuleCount = listStatuses["urlhaus"]?.ruleCount ?: 0
+            urlhausRuleCount = (listStatuses["malicious-url-blocklist"] ?: listStatuses["urlhaus"])?.ruleCount ?: 0
         )
 
         Log.i(TAG, "AdBlock reloaded with ${combinedRules.totalRuleCount} rules across ${_status.value.activeListCount} active lists.")
@@ -402,23 +411,23 @@ object AdBlockListManager {
             }
 
             val isGzip = "gzip".equals(connection.contentEncoding, ignoreCase = true)
-            val inputStream: InputStream = if (isGzip) {
-                GZIPInputStream(connection.inputStream)
-            } else {
-                connection.inputStream
+            val rawStream = connection.inputStream
+            val inputStream: InputStream = try {
+                if (isGzip) GZIPInputStream(rawStream) else rawStream
+            } catch (e: Exception) {
+                rawStream.close()
+                throw e
             }
 
-            FileOutputStream(tempFile).use { output ->
-                val buffer = ByteArray(32768)
-                var bytesRead: Int
-                while (inputStream.read(buffer).also { bytesRead = it } != -1) {
-                    output.write(buffer, 0, bytesRead)
+            inputStream.use { input ->
+                FileOutputStream(tempFile).use { output ->
+                    input.copyTo(output)
                 }
             }
 
             if (tempFile.length() > 0) {
-                if (targetFile.exists()) targetFile.delete()
-                tempFile.renameTo(targetFile)
+                tempFile.copyTo(targetFile, overwrite = true)
+                tempFile.delete()
                 Log.i(TAG, "Downloaded ${targetFile.name} (${targetFile.length()} bytes)")
                 true
             } else {
