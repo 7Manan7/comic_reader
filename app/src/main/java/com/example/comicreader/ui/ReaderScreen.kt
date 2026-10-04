@@ -73,6 +73,8 @@ import com.example.comicreader.data.SessionManager
 import com.example.comicreader.data.AppPreferences
 import com.example.comicreader.data.Tab
 import com.example.comicreader.data.TabManager
+import com.example.comicreader.data.SearchEngine
+import com.example.comicreader.ui.home.HomeScreenContent
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -153,6 +155,7 @@ fun ReaderScreen(
         tabs = listOf(it)
         activeTabId = it.id
     }
+    val isHomeTab = activeTab.url == AppPreferences.DEFAULT_HOME_URL || activeTab.url == "about:home" || activeTab.url.isBlank()
 
     // Session & Startup state
     var isRestoreLastPageEnabled by remember {
@@ -181,7 +184,7 @@ fun ReaderScreen(
             val target = tabs.find { it.id == tabId }
             if (target != null) {
                 currentUrl = target.url
-                inputUrl = target.url
+                inputUrl = if (target.url == AppPreferences.DEFAULT_HOME_URL || target.url == "about:home") "" else target.url
                 pageTitle = target.title
                 val targetWebView = tabWebViews[tabId]
                 if (targetWebView != null) {
@@ -190,6 +193,10 @@ fun ReaderScreen(
                     webViewRef = targetWebView
                     onRegisterWebView(targetWebView)
                     targetWebView.onResume()
+                } else {
+                    canGoBack = false
+                    canGoForward = false
+                    webViewRef = null
                 }
             }
         }
@@ -215,7 +222,7 @@ fun ReaderScreen(
             val target = updatedTabs.find { it.id == newActiveId }
             if (target != null) {
                 currentUrl = target.url
-                inputUrl = target.url
+                inputUrl = if (target.url == AppPreferences.DEFAULT_HOME_URL || target.url == "about:home") "" else target.url
                 pageTitle = target.title
                 val targetWebView = tabWebViews[newActiveId]
                 if (targetWebView != null) {
@@ -224,6 +231,10 @@ fun ReaderScreen(
                     webViewRef = targetWebView
                     onRegisterWebView(targetWebView)
                     targetWebView.onResume()
+                } else {
+                    canGoBack = false
+                    canGoForward = false
+                    webViewRef = null
                 }
             }
         }
@@ -241,8 +252,11 @@ fun ReaderScreen(
         activeTabId = newActiveId
         val target = updatedTabs.first()
         currentUrl = target.url
-        inputUrl = target.url
+        inputUrl = ""
         pageTitle = target.title
+        canGoBack = false
+        canGoForward = false
+        webViewRef = null
     }
 
     DisposableEffect(Unit) {
@@ -263,7 +277,6 @@ fun ReaderScreen(
     var showSettingsSheet by remember { mutableStateOf(false) }
     var showAdBlockDialog by remember { mutableStateOf(false) }
     var showBraveMenu by remember { mutableStateOf(false) }
-    var showHomeSheet by remember { mutableStateOf(false) }
 
     // History state
     var historyList by remember { mutableStateOf(HistoryManager.getHistory(context)) }
@@ -300,15 +313,17 @@ fun ReaderScreen(
     }
 
     // Hardware back press handler
-    BackHandler(enabled = showTabsSheet || canGoBack) {
+    BackHandler(enabled = showTabsSheet || canGoBack || !isHomeTab) {
         if (showTabsSheet) {
             showTabsSheet = false
-        } else {
-            webViewRef?.let {
-                if (it.canGoBack()) {
-                    it.goBack()
-                }
-            }
+        } else if (webViewRef?.canGoBack() == true) {
+            webViewRef?.goBack()
+        } else if (!isHomeTab) {
+            val homeUrl = AppPreferences.DEFAULT_HOME_URL
+            currentUrl = homeUrl
+            inputUrl = ""
+            pageTitle = "Home"
+            tabs = TabManager.updateTab(context, activeTabId, title = "Home", url = homeUrl)
         }
     }
 
@@ -359,8 +374,9 @@ fun ReaderScreen(
                     }
 
                     // URL / Search text box
+                    val displayUrl = if (inputUrl == AppPreferences.DEFAULT_HOME_URL || inputUrl == "about:home") "" else inputUrl
                     OutlinedTextField(
-                        value = inputUrl,
+                        value = displayUrl,
                         onValueChange = { inputUrl = it },
                         modifier = Modifier
                             .weight(1f)
@@ -374,13 +390,14 @@ fun ReaderScreen(
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
                         keyboardActions = KeyboardActions(onGo = {
                             focusManager.clearFocus()
-                            val destination = normalizeUrl(inputUrl)
+                            val destination = normalizeUrl(inputUrl, context)
                             currentUrl = destination
-                            tabs = TabManager.updateTab(context, activeTabId, url = destination)
-                            webViewRef?.loadUrl(destination)
+                            val title = if (destination.startsWith("http")) inputUrl else "Home"
+                            tabs = TabManager.updateTab(context, activeTabId, title = title, url = destination)
+                            tabWebViews[activeTabId]?.loadUrl(destination)
                         }),
                         trailingIcon = {
-                            if (inputUrl.isNotEmpty()) {
+                            if (displayUrl.isNotEmpty()) {
                                 IconButton(onClick = { inputUrl = "" }) {
                                     Icon(
                                         imageVector = Icons.Default.Close,
@@ -434,127 +451,153 @@ fun ReaderScreen(
                 .weight(1f)
                 .fillMaxWidth()
         ) {
-            // Main Comic WebView keyed to active tab
-            key(activeTabId) {
-                AndroidView(
-                    modifier = Modifier.fillMaxSize(),
-                    factory = { ctx ->
-                        val existing = tabWebViews[activeTabId]
-                        val targetTabId = activeTabId
-                        val wv = if (existing != null) {
-                            (existing.parent as? ViewGroup)?.removeView(existing)
-                            existing.onResume()
-                            existing.resumeTimers()
-                            existing
-                        } else {
-                            ComicWebView(ctx).apply {
-                                layoutParams = ViewGroup.LayoutParams(
-                                    ViewGroup.LayoutParams.MATCH_PARENT,
-                                    ViewGroup.LayoutParams.MATCH_PARENT
-                                )
-
-                                onProgressChanged = { progress ->
-                                    if (activeTabId == targetTabId) {
-                                        pageProgress = progress
-                                        canGoBack = canGoBack()
-                                        canGoForward = canGoForward()
-                                    }
+            if (isHomeTab) {
+                HomeScreenContent(
+                    onNavigate = { destination, title ->
+                        currentUrl = destination
+                        inputUrl = destination
+                        pageTitle = title
+                        tabs = TabManager.updateTab(context, activeTabId, title = title, url = destination)
+                        tabWebViews[activeTabId]?.loadUrl(destination)
+                    },
+                    onOpenInNewTab = { destination, title ->
+                        addNewTab(url = destination, title = title)
+                    },
+                    onOpenHistory = {
+                        historyList = HistoryManager.getHistory(context)
+                        showHistorySheet = true
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                // Main Comic WebView keyed to active tab
+                key(activeTabId) {
+                    AndroidView(
+                        modifier = Modifier.fillMaxSize(),
+                        factory = { ctx ->
+                            val existing = tabWebViews[activeTabId]
+                            val targetTabId = activeTabId
+                            val wv = if (existing != null) {
+                                (existing.parent as? ViewGroup)?.removeView(existing)
+                                existing.onResume()
+                                existing.resumeTimers()
+                                if (existing.url != activeTab.url && activeTab.url.startsWith("http")) {
+                                    existing.loadUrl(activeTab.url)
                                 }
+                                existing
+                            } else {
+                                ComicWebView(ctx).apply {
+                                    layoutParams = ViewGroup.LayoutParams(
+                                        ViewGroup.LayoutParams.MATCH_PARENT,
+                                        ViewGroup.LayoutParams.MATCH_PARENT
+                                    )
 
-                                onTitleReceived = { title ->
-                                    if (activeTabId == targetTabId) {
-                                        pageTitle = title
-                                        if (currentUrl.startsWith("http") && title.isNotBlank()) {
-                                            historyList = HistoryManager.addHistoryEntry(context, title, currentUrl)
+                                    onProgressChanged = { progress ->
+                                        if (activeTabId == targetTabId) {
+                                            pageProgress = progress
+                                            canGoBack = canGoBack()
+                                            canGoForward = canGoForward()
                                         }
                                     }
-                                    tabs = TabManager.updateTab(context, targetTabId, title = title)
-                                }
 
-                                onUrlChanged = { newUrl ->
-                                    if (activeTabId == targetTabId) {
-                                        currentUrl = newUrl
-                                        inputUrl = newUrl
-                                        canGoBack = canGoBack()
-                                        canGoForward = canGoForward()
-                                        if (newUrl.startsWith("http")) {
-                                            val title = pageTitle.ifBlank { newUrl }
-                                            historyList = HistoryManager.addHistoryEntry(context, title, newUrl)
-                                            SessionManager.saveLastUrl(context, newUrl)
+                                    onTitleReceived = { title ->
+                                        if (activeTabId == targetTabId) {
+                                            pageTitle = title
+                                            if (currentUrl.startsWith("http") && title.isNotBlank()) {
+                                                historyList = HistoryManager.addHistoryEntry(context, title, currentUrl)
+                                            }
+                                        }
+                                        tabs = TabManager.updateTab(context, targetTabId, title = title)
+                                    }
+
+                                    onUrlChanged = { newUrl ->
+                                        if (activeTabId == targetTabId) {
+                                            currentUrl = newUrl
+                                            inputUrl = newUrl
+                                            canGoBack = canGoBack()
+                                            canGoForward = canGoForward()
+                                            if (newUrl.startsWith("http")) {
+                                                val title = pageTitle.ifBlank { newUrl }
+                                                historyList = HistoryManager.addHistoryEntry(context, title, newUrl)
+                                                SessionManager.saveLastUrl(context, newUrl)
+                                            }
+                                        }
+                                        tabs = TabManager.updateTab(context, targetTabId, url = newUrl)
+                                    }
+
+                                    onNewTabRequested = { targetUrl ->
+                                        addNewTab(targetUrl, "New Tab")
+                                    }
+
+                                    onScrollDirectionChanged = { isScrollingDown ->
+                                        if (isScrollingDown) {
+                                            if (isHudVisible) {
+                                                isHudVisible = false
+                                            }
+                                            if (!isImmersiveFullscreen) {
+                                                onToggleFullscreen(true)
+                                            }
+                                        } else {
+                                            if (!isHudVisible) {
+                                                isHudVisible = true
+                                            }
+                                            if (!isImmersiveFullscreen) {
+                                                onToggleFullscreen(false)
+                                            }
                                         }
                                     }
-                                    tabs = TabManager.updateTab(context, targetTabId, url = newUrl)
-                                }
 
-                                onNewTabRequested = { targetUrl ->
-                                    addNewTab(targetUrl, "New Tab")
-                                }
-
-                                onScrollDirectionChanged = { isScrollingDown ->
-                                    if (isScrollingDown) {
-                                        if (isHudVisible) {
-                                            isHudVisible = false
-                                        }
+                                    onSingleTap = {
+                                        val showBrowser = !isHudVisible
+                                        isHudVisible = showBrowser
                                         if (!isImmersiveFullscreen) {
-                                            onToggleFullscreen(true)
-                                        }
-                                    } else {
-                                        if (!isHudVisible) {
-                                            isHudVisible = true
-                                        }
-                                        if (!isImmersiveFullscreen) {
-                                            onToggleFullscreen(false)
+                                            onToggleFullscreen(!showBrowser)
                                         }
                                     }
-                                }
 
-                                onSingleTap = {
-                                    val showBrowser = !isHudVisible
-                                    isHudVisible = showBrowser
-                                    if (!isImmersiveFullscreen) {
-                                        onToggleFullscreen(!showBrowser)
+                                    onBlockedAdCountChanged = { count ->
+                                        if (activeTabId == targetTabId) {
+                                            blockedAdCount = count
+                                        }
                                     }
-                                }
 
-                                onBlockedAdCountChanged = { count ->
-                                    if (activeTabId == targetTabId) {
-                                        blockedAdCount = count
+                                    onTouchFocus = {
+                                        if (isUrlInputFocused) {
+                                            focusManager.clearFocus()
+                                            isUrlInputFocused = false
+                                        }
                                     }
-                                }
 
-                                onTouchFocus = {
-                                    if (isUrlInputFocused) {
-                                        focusManager.clearFocus()
-                                        isUrlInputFocused = false
-                                    }
+                                    loadUrl(activeTab.url)
+                                    tabWebViews[targetTabId] = this
                                 }
-
-                                loadUrl(activeTab.url)
-                                tabWebViews[targetTabId] = this
+                            }
+                            webViewRef = wv
+                            onRegisterWebView(wv)
+                            wv
+                        },
+                        update = { webView ->
+                            webViewRef = webView
+                            webView.setInvertMode(isNightInvertMode)
+                            webView.settings.textZoom = webTextZoom
+                            if (webView.url != activeTab.url && activeTab.url.startsWith("http")) {
+                                webView.loadUrl(activeTab.url)
                             }
                         }
-                        webViewRef = wv
-                        onRegisterWebView(wv)
-                        wv
-                    },
-                    update = { webView ->
-                        webViewRef = webView
-                        webView.setInvertMode(isNightInvertMode)
-                        webView.settings.textZoom = webTextZoom
-                    }
-                )
-            }
+                    )
+                }
 
-            // Loading Progress Bar
-            if (pageProgress in 1..99) {
-                LinearProgressIndicator(
-                    progress = { pageProgress / 100f },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .align(Alignment.TopCenter),
-                    color = Color(0xFF64B5F6),
-                    trackColor = Color.Transparent
-                )
+                // Loading Progress Bar
+                if (pageProgress in 1..99) {
+                    LinearProgressIndicator(
+                        progress = { pageProgress / 100f },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .align(Alignment.TopCenter),
+                        color = Color(0xFF64B5F6),
+                        trackColor = Color.Transparent
+                    )
+                }
             }
         }
 
@@ -579,12 +622,18 @@ fun ReaderScreen(
                     horizontalArrangement = Arrangement.SpaceAround,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Home Button (Opens Quick Sites & Bookmarks Speed-Dial)
-                    IconButton(onClick = { showHomeSheet = true }) {
+                    // Home Button (Navigates active tab to Home)
+                    IconButton(onClick = {
+                        val homeUrl = AppPreferences.DEFAULT_HOME_URL
+                        currentUrl = homeUrl
+                        inputUrl = ""
+                        pageTitle = "Home"
+                        tabs = TabManager.updateTab(context, activeTabId, title = "Home", url = homeUrl)
+                    }) {
                         Icon(
                             imageVector = Icons.Default.Home,
-                            contentDescription = "Home & Sites",
-                            tint = Color.White
+                            contentDescription = "Home",
+                            tint = if (isHomeTab) Color(0xFF64B5F6) else Color.White
                         )
                     }
 
@@ -643,176 +692,7 @@ fun ReaderScreen(
         }
     }
 
-    // Home & Quick Manga Sites Speed-Dial (Opened via Home button)
-    if (showHomeSheet) {
-        Dialog(
-            onDismissRequest = { showHomeSheet = false },
-            properties = DialogProperties(
-                usePlatformDefaultWidth = false,
-                decorFitsSystemWindows = false
-            )
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.72f))
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = { showHomeSheet = false }
-                    )
-                    // Invisible border on up, down, left and right:
-                    .windowInsetsPadding(WindowInsets.safeDrawing)
-                    .padding(start = 20.dp, end = 20.dp, top = 28.dp, bottom = 28.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .fillMaxHeight(0.78f)
-                        // Visible border for the menu:
-                        .border(
-                            width = 2.dp,
-                            color = Color(0xFF535A7B),
-                            shape = RoundedCornerShape(24.dp)
-                        )
-                        .clip(RoundedCornerShape(24.dp))
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            onClick = { /* consume click */ }
-                        ),
-                    shape = RoundedCornerShape(24.dp),
-                    color = Color(0xFF141620),
-                    shadowElevation = 24.dp
-                ) {
-                    Column(
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        // Fixed Header
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(Color(0xFF1D202D))
-                                .padding(horizontal = 18.dp, vertical = 14.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column {
-                                Text(
-                                    text = "🏠 Quick Manga Sites",
-                                    fontSize = 17.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White
-                                )
-                                Text(
-                                    text = "Tap any comic site to start reading",
-                                    fontSize = 11.sp,
-                                    color = Color.Gray
-                                )
-                            }
-                            IconButton(
-                                onClick = { showHomeSheet = false },
-                                modifier = Modifier.size(32.dp)
-                            ) {
-                                Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.LightGray)
-                            }
-                        }
 
-                        HorizontalDivider(color = Color(0xFF2B2E42), thickness = 1.dp)
-
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .weight(1f)
-                                .verticalScroll(rememberScrollState())
-                                .padding(horizontal = 16.dp, vertical = 14.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            bookmarks.forEach { bookmark ->
-                                Card(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1F2230)),
-                                    shape = RoundedCornerShape(12.dp),
-                                    border = BorderStroke(1.dp, Color(0xFF2B2E42))
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clickable {
-                                                inputUrl = bookmark.url
-                                                currentUrl = bookmark.url
-                                                tabs = TabManager.updateTab(context, activeTabId, title = bookmark.name, url = bookmark.url)
-                                                webViewRef?.loadUrl(bookmark.url)
-                                                showHomeSheet = false
-                                            }
-                                            .padding(horizontal = 14.dp, vertical = 12.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Row(
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .padding(end = 8.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Text(
-                                                text = bookmark.icon,
-                                                fontSize = 20.sp,
-                                                modifier = Modifier.padding(end = 12.dp)
-                                            )
-                                            Column {
-                                                Text(
-                                                    text = bookmark.name,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = Color.White,
-                                                    fontSize = 14.sp
-                                                )
-                                                Text(
-                                                    text = bookmark.url,
-                                                    color = Color(0xFF90CAF9),
-                                                    fontSize = 11.sp,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                            }
-                                        }
-                                        Text(
-                                            text = "Open →",
-                                            color = Color(0xFF64B5F6),
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.SemiBold
-                                        )
-                                    }
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.height(4.dp))
-
-                            OutlinedButton(
-                                onClick = {
-                                    showHomeSheet = false
-                                    showBookmarksSheet = true
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(12.dp),
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF64B5F6)),
-                                border = BorderStroke(1.dp, Color(0xFF3F445A))
-                            ) {
-                                Icon(
-                                    Icons.Default.Add,
-                                    contentDescription = "Manage / Add Sites",
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Manage / Add Custom Sites", fontSize = 13.sp)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
 
     // Brave Browser-Style Unified Menu (All settings visible, safe boundary borders)
     if (showBraveMenu || showSettingsSheet || showAdBlockDialog) {
@@ -2268,21 +2148,22 @@ private fun TabBadgeButton(
 }
 
 /**
- * Normalizes input string to either a valid URL or a search query.
+ * Normalizes input string to either a valid URL or a search query using the preferred search engine.
  */
-private fun normalizeUrl(input: String): String {
+private fun normalizeUrl(input: String, context: Context): String {
     val trimmed = input.trim()
-    if (trimmed.isEmpty()) {
+    if (trimmed.isEmpty() || trimmed == "about:home") {
         return AppPreferences.DEFAULT_HOME_URL
     }
-    if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+    if (trimmed.startsWith("http://") || trimmed.startsWith("https://") || trimmed.startsWith("about:")) {
         return trimmed
     }
     if (trimmed.contains(".") && !trimmed.contains(" ")) {
         return "https://$trimmed"
     }
-    // Search query using DuckDuckGo
-    return "https://duckduckgo.com/?q=" + Uri.encode(trimmed)
+    // Search query using preferred search engine
+    val engine = AppPreferences.getSearchEngine(context)
+    return engine.buildUrl(trimmed)
 }
 
 private tailrec fun Context.findActivity(): Activity? = when (this) {

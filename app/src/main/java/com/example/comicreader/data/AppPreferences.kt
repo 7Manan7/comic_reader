@@ -23,10 +23,21 @@ object AppPreferences {
     private const val KEY_TARGET_REFRESH_RATE = "target_refresh_rate"
     private const val KEY_IMMERSIVE_FULLSCREEN = "immersive_fullscreen"
 
-    const val DEFAULT_HOME_URL = "https://comix.to/"
+    const val DEFAULT_HOME_URL = "about:home"
+    private const val KEY_SEARCH_ENGINE = "preferred_search_engine"
 
     private fun getPrefs(context: Context): SharedPreferences {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    }
+
+    // --- Search Engine Selection ---
+    fun getSearchEngine(context: Context): SearchEngine {
+        val id = getPrefs(context).getString(KEY_SEARCH_ENGINE, SearchEngine.GOOGLE.id)
+        return SearchEngine.fromId(id)
+    }
+
+    fun setSearchEngine(context: Context, engine: SearchEngine) {
+        getPrefs(context).edit().putString(KEY_SEARCH_ENGINE, engine.id).apply()
     }
 
     // --- Restore Last Page & Session ---
@@ -38,7 +49,7 @@ object AppPreferences {
 
     fun saveLastUrl(context: Context, url: String) {
         val trimmed = url.trim()
-        if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+        if (trimmed.startsWith("http://") || trimmed.startsWith("https://") || trimmed == DEFAULT_HOME_URL) {
             getPrefs(context).edit().putString(KEY_LAST_VISITED_URL, trimmed).apply()
         }
     }
@@ -49,7 +60,7 @@ object AppPreferences {
     fun getInitialUrl(context: Context): String {
         if (isRestoreLastPageEnabled(context)) {
             val lastUrl = getPrefs(context).getString(KEY_LAST_VISITED_URL, null)
-            if (!lastUrl.isNullOrBlank() && (lastUrl.startsWith("http://") || lastUrl.startsWith("https://"))) {
+            if (!lastUrl.isNullOrBlank() && (lastUrl.startsWith("http://") || lastUrl.startsWith("https://") || lastUrl == DEFAULT_HOME_URL)) {
                 return lastUrl
             }
         }
