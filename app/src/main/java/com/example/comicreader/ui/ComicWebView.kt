@@ -41,6 +41,7 @@ class ComicWebView @JvmOverloads constructor(
     var onBlockedAdCountChanged: ((Int) -> Unit)? = null
     var onScrollDirectionChanged: ((isScrollingDown: Boolean) -> Unit)? = null
     var onTouchFocus: (() -> Unit)? = null
+    var onNewTabRequested: ((String) -> Unit)? = null
 
     private var isInvertedMode: Boolean = false
     private var downX = 0f
@@ -262,11 +263,17 @@ class ComicWebView @JvmOverloads constructor(
                             return true
                         }
 
-                        val targetHost = targetUri.host
-                        if (targetHost != null && currentHost != null && (targetHost == currentHost || targetHost.endsWith(".$currentHost"))) {
-                            this@ComicWebView.loadUrl(targetUrl)
-                        } else if (!AdBlockEngine.isAd(targetUri, currentHost)) {
-                            this@ComicWebView.loadUrl(targetUrl)
+                        if (this@ComicWebView.onNewTabRequested != null) {
+                            this@ComicWebView.post {
+                                this@ComicWebView.onNewTabRequested?.invoke(targetUrl)
+                            }
+                        } else {
+                            val targetHost = targetUri.host
+                            if (targetHost != null && currentHost != null && (targetHost == currentHost || targetHost.endsWith(".$currentHost"))) {
+                                this@ComicWebView.loadUrl(targetUrl)
+                            } else if (!AdBlockEngine.isAd(targetUri, currentHost)) {
+                                this@ComicWebView.loadUrl(targetUrl)
+                            }
                         }
                         targetView?.destroy()
                         return true

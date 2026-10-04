@@ -71,6 +71,14 @@ import com.example.comicreader.data.HistoryItem
 import com.example.comicreader.data.HistoryManager
 import com.example.comicreader.data.SessionManager
 import com.example.comicreader.data.AppPreferences
+import com.example.comicreader.data.Tab
+import com.example.comicreader.data.TabManager
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.key
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -136,20 +144,117 @@ fun ReaderScreen(
     val coroutineScope = rememberCoroutineScope()
     val adBlockListsStatus by AdBlockListManager.status.collectAsState()
 
+    // Tabs state with persistent multi-tab support
+    var tabs by remember { mutableStateOf(TabManager.getTabs(context)) }
+    var activeTabId by remember { mutableStateOf(TabManager.getActiveTabId(context)) }
+    var showTabsSheet by remember { mutableStateOf(false) }
+
+    val activeTab = tabs.find { it.id == activeTabId } ?: tabs.firstOrNull() ?: Tab().also {
+        tabs = listOf(it)
+        activeTabId = it.id
+    }
+
     // Session & Startup state
     var isRestoreLastPageEnabled by remember {
         mutableStateOf(SessionManager.isRestoreLastPageEnabled(context))
     }
-    val initialUrl = remember { SessionManager.getInitialUrl(context) }
 
     // Web navigation state
-    var currentUrl by remember { mutableStateOf(initialUrl) }
-    var inputUrl by remember { mutableStateOf(initialUrl) }
-    var pageTitle by remember { mutableStateOf("Kuro Reader") }
+    var currentUrl by remember { mutableStateOf(activeTab.url) }
+    var inputUrl by remember { mutableStateOf(activeTab.url) }
+    var pageTitle by remember { mutableStateOf(activeTab.title) }
     var pageProgress by remember { mutableIntStateOf(0) }
     var canGoBack by remember { mutableStateOf(false) }
     var canGoForward by remember { mutableStateOf(false) }
     var blockedAdCount by remember { mutableIntStateOf(0) }
+
+    var webViewRef by remember { mutableStateOf<ComicWebView?>(null) }
+
+    // Multi-tab WebViews cache (keeps background tabs in memory for instant switching without losing reading progress)
+    val tabWebViews = remember { mutableMapOf<String, ComicWebView>() }
+
+    fun selectTab(tabId: String) {
+        if (tabId != activeTabId) {
+            tabWebViews[activeTabId]?.onPause()
+            activeTabId = tabId
+            TabManager.setActiveTabId(context, tabId)
+            val target = tabs.find { it.id == tabId }
+            if (target != null) {
+                currentUrl = target.url
+                inputUrl = target.url
+                pageTitle = target.title
+                val targetWebView = tabWebViews[tabId]
+                if (targetWebView != null) {
+                    canGoBack = targetWebView.canGoBack()
+                    canGoForward = targetWebView.canGoForward()
+                    webViewRef = targetWebView
+                    onRegisterWebView(targetWebView)
+                    targetWebView.onResume()
+                }
+            }
+        }
+    }
+
+    fun addNewTab(url: String = AppPreferences.DEFAULT_HOME_URL, title: String = "Home") {
+        val (updatedTabs, newTab) = TabManager.createTab(context, url, title)
+        tabs = updatedTabs
+        selectTab(newTab.id)
+    }
+
+    fun closeTab(tabId: String) {
+        tabWebViews[tabId]?.let { wv ->
+            (wv.parent as? ViewGroup)?.removeView(wv)
+            wv.stopLoading()
+            wv.destroy()
+            tabWebViews.remove(tabId)
+        }
+        val (updatedTabs, newActiveId) = TabManager.closeTab(context, tabId)
+        tabs = updatedTabs
+        if (activeTabId == tabId) {
+            activeTabId = newActiveId
+            val target = updatedTabs.find { it.id == newActiveId }
+            if (target != null) {
+                currentUrl = target.url
+                inputUrl = target.url
+                pageTitle = target.title
+                val targetWebView = tabWebViews[newActiveId]
+                if (targetWebView != null) {
+                    canGoBack = targetWebView.canGoBack()
+                    canGoForward = targetWebView.canGoForward()
+                    webViewRef = targetWebView
+                    onRegisterWebView(targetWebView)
+                    targetWebView.onResume()
+                }
+            }
+        }
+    }
+
+    fun closeAllTabs() {
+        tabWebViews.values.forEach { wv ->
+            (wv.parent as? ViewGroup)?.removeView(wv)
+            wv.stopLoading()
+            wv.destroy()
+        }
+        tabWebViews.clear()
+        val (updatedTabs, newActiveId) = TabManager.closeAllTabs(context)
+        tabs = updatedTabs
+        activeTabId = newActiveId
+        val target = updatedTabs.first()
+        currentUrl = target.url
+        inputUrl = target.url
+        pageTitle = target.title
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            tabWebViews.values.forEach { wv ->
+                (wv.parent as? ViewGroup)?.removeView(wv)
+                wv.stopLoading()
+                wv.destroy()
+            }
+            tabWebViews.clear()
+        }
+    }
 
     // UI visibility state (Default to standard browser view)
     var isHudVisible by remember { mutableStateOf(true) }
@@ -177,7 +282,6 @@ fun ReaderScreen(
     val availableRates by RefreshRateManager.availableModes.collectAsState()
     val selectedRateLabel by RefreshRateManager.selectedModeLabel.collectAsState()
 
-    var webViewRef by remember { mutableStateOf<ComicWebView?>(null) }
     val focusManager = LocalFocusManager.current
 
     // Bookmarks state with persistent storage (Comix, MangaFreak, MangaKatana + custom additions)
@@ -196,10 +300,14 @@ fun ReaderScreen(
     }
 
     // Hardware back press handler
-    BackHandler(enabled = canGoBack) {
-        webViewRef?.let {
-            if (it.canGoBack()) {
-                it.goBack()
+    BackHandler(enabled = showTabsSheet || canGoBack) {
+        if (showTabsSheet) {
+            showTabsSheet = false
+        } else {
+            webViewRef?.let {
+                if (it.canGoBack()) {
+                    it.goBack()
+                }
             }
         }
     }
@@ -267,6 +375,8 @@ fun ReaderScreen(
                         keyboardActions = KeyboardActions(onGo = {
                             focusManager.clearFocus()
                             val destination = normalizeUrl(inputUrl)
+                            currentUrl = destination
+                            tabs = TabManager.updateTab(context, activeTabId, url = destination)
                             webViewRef?.loadUrl(destination)
                         }),
                         trailingIcon = {
@@ -287,6 +397,14 @@ fun ReaderScreen(
                             unfocusedContainerColor = Color(0xFF2A2A32)
                         ),
                         shape = RoundedCornerShape(24.dp)
+                    )
+
+                    Spacer(modifier = Modifier.width(4.dp))
+
+                    // Tabs Switcher Button
+                    TabBadgeButton(
+                        tabCount = tabs.size,
+                        onClick = { showTabsSheet = true }
                     )
 
                     // Refresh Button
@@ -316,92 +434,116 @@ fun ReaderScreen(
                 .weight(1f)
                 .fillMaxWidth()
         ) {
-            // Main Comic WebView
-            AndroidView(
-                modifier = Modifier.fillMaxSize(),
-                factory = { ctx ->
-                    ComicWebView(ctx).apply {
-                        layoutParams = ViewGroup.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.MATCH_PARENT
-                        )
+            // Main Comic WebView keyed to active tab
+            key(activeTabId) {
+                AndroidView(
+                    modifier = Modifier.fillMaxSize(),
+                    factory = { ctx ->
+                        val existing = tabWebViews[activeTabId]
+                        val targetTabId = activeTabId
+                        val wv = if (existing != null) {
+                            (existing.parent as? ViewGroup)?.removeView(existing)
+                            existing.onResume()
+                            existing.resumeTimers()
+                            existing
+                        } else {
+                            ComicWebView(ctx).apply {
+                                layoutParams = ViewGroup.LayoutParams(
+                                    ViewGroup.LayoutParams.MATCH_PARENT,
+                                    ViewGroup.LayoutParams.MATCH_PARENT
+                                )
 
-                        onProgressChanged = { progress ->
-                            pageProgress = progress
-                            canGoBack = canGoBack()
-                            canGoForward = canGoForward()
-                        }
-
-                        onTitleReceived = { title ->
-                            pageTitle = title
-                            if (currentUrl.startsWith("http") && title.isNotBlank()) {
-                                historyList = HistoryManager.addHistoryEntry(context, title, currentUrl)
-                            }
-                        }
-
-                        onUrlChanged = { newUrl ->
-                            currentUrl = newUrl
-                            inputUrl = newUrl
-                            canGoBack = canGoBack()
-                            canGoForward = canGoForward()
-                            if (newUrl.startsWith("http")) {
-                                val title = pageTitle.ifBlank { newUrl }
-                                historyList = HistoryManager.addHistoryEntry(context, title, newUrl)
-                                SessionManager.saveLastUrl(context, newUrl)
-                            }
-                        }
-
-                        onScrollDirectionChanged = { isScrollingDown ->
-                            if (isScrollingDown) {
-                                // User scrolled down: hide browser HUD for reading
-                                if (isHudVisible) {
-                                    isHudVisible = false
+                                onProgressChanged = { progress ->
+                                    if (activeTabId == targetTabId) {
+                                        pageProgress = progress
+                                        canGoBack = canGoBack()
+                                        canGoForward = canGoForward()
+                                    }
                                 }
-                                if (!isImmersiveFullscreen) {
-                                    onToggleFullscreen(true)
+
+                                onTitleReceived = { title ->
+                                    if (activeTabId == targetTabId) {
+                                        pageTitle = title
+                                        if (currentUrl.startsWith("http") && title.isNotBlank()) {
+                                            historyList = HistoryManager.addHistoryEntry(context, title, currentUrl)
+                                        }
+                                    }
+                                    tabs = TabManager.updateTab(context, targetTabId, title = title)
                                 }
-                            } else {
-                                // User scrolled up or reached top: restore basic browser UI
-                                if (!isHudVisible) {
-                                    isHudVisible = true
+
+                                onUrlChanged = { newUrl ->
+                                    if (activeTabId == targetTabId) {
+                                        currentUrl = newUrl
+                                        inputUrl = newUrl
+                                        canGoBack = canGoBack()
+                                        canGoForward = canGoForward()
+                                        if (newUrl.startsWith("http")) {
+                                            val title = pageTitle.ifBlank { newUrl }
+                                            historyList = HistoryManager.addHistoryEntry(context, title, newUrl)
+                                            SessionManager.saveLastUrl(context, newUrl)
+                                        }
+                                    }
+                                    tabs = TabManager.updateTab(context, targetTabId, url = newUrl)
                                 }
-                                if (!isImmersiveFullscreen) {
-                                    onToggleFullscreen(false)
+
+                                onNewTabRequested = { targetUrl ->
+                                    addNewTab(targetUrl, "New Tab")
                                 }
+
+                                onScrollDirectionChanged = { isScrollingDown ->
+                                    if (isScrollingDown) {
+                                        if (isHudVisible) {
+                                            isHudVisible = false
+                                        }
+                                        if (!isImmersiveFullscreen) {
+                                            onToggleFullscreen(true)
+                                        }
+                                    } else {
+                                        if (!isHudVisible) {
+                                            isHudVisible = true
+                                        }
+                                        if (!isImmersiveFullscreen) {
+                                            onToggleFullscreen(false)
+                                        }
+                                    }
+                                }
+
+                                onSingleTap = {
+                                    val showBrowser = !isHudVisible
+                                    isHudVisible = showBrowser
+                                    if (!isImmersiveFullscreen) {
+                                        onToggleFullscreen(!showBrowser)
+                                    }
+                                }
+
+                                onBlockedAdCountChanged = { count ->
+                                    if (activeTabId == targetTabId) {
+                                        blockedAdCount = count
+                                    }
+                                }
+
+                                onTouchFocus = {
+                                    if (isUrlInputFocused) {
+                                        focusManager.clearFocus()
+                                        isUrlInputFocused = false
+                                    }
+                                }
+
+                                loadUrl(activeTab.url)
+                                tabWebViews[targetTabId] = this
                             }
                         }
-
-                        onSingleTap = {
-                            // Toggle UI HUD on tap
-                            val showBrowser = !isHudVisible
-                            isHudVisible = showBrowser
-                            if (!isImmersiveFullscreen) {
-                                onToggleFullscreen(!showBrowser)
-                            }
-                        }
-
-                        onBlockedAdCountChanged = { count ->
-                            blockedAdCount = count
-                        }
-
-                        onTouchFocus = {
-                            if (isUrlInputFocused) {
-                                focusManager.clearFocus()
-                                isUrlInputFocused = false
-                            }
-                        }
-
-                        loadUrl(currentUrl)
-                        webViewRef = this
-                        onRegisterWebView(this)
+                        webViewRef = wv
+                        onRegisterWebView(wv)
+                        wv
+                    },
+                    update = { webView ->
+                        webViewRef = webView
+                        webView.setInvertMode(isNightInvertMode)
+                        webView.settings.textZoom = webTextZoom
                     }
-                },
-                update = { webView ->
-                    webViewRef = webView
-                    webView.setInvertMode(isNightInvertMode)
-                    webView.settings.textZoom = webTextZoom
-                }
-            )
+                )
+            }
 
             // Loading Progress Bar
             if (pageProgress in 1..99) {
@@ -469,6 +611,12 @@ fun ReaderScreen(
                             tint = if (canGoForward) Color.White else Color.Gray
                         )
                     }
+
+                    // Tabs Switcher Button
+                    TabBadgeButton(
+                        tabCount = tabs.size,
+                        onClick = { showTabsSheet = true }
+                    )
 
                     // Browsing History Button
                     IconButton(onClick = {
@@ -593,6 +741,8 @@ fun ReaderScreen(
                                             .fillMaxWidth()
                                             .clickable {
                                                 inputUrl = bookmark.url
+                                                currentUrl = bookmark.url
+                                                tabs = TabManager.updateTab(context, activeTabId, title = bookmark.name, url = bookmark.url)
                                                 webViewRef?.loadUrl(bookmark.url)
                                                 showHomeSheet = false
                                             }
@@ -1271,11 +1421,41 @@ fun ReaderScreen(
                                 }
                             }
 
-                            // 5. Quick Navigation Links (Bookmarks, History)
+                            // 5. Quick Navigation Links (Tabs, New Tab, Bookmarks, History)
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
+                                OutlinedButton(
+                                    onClick = {
+                                        showBraveMenu = false
+                                        showTabsSheet = true
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF64B5F6)),
+                                    border = BorderStroke(1.dp, Color(0xFF3F445A)),
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 6.dp)
+                                ) {
+                                    Text("📑 Tabs (${tabs.size})", fontSize = 11.sp, maxLines = 1)
+                                }
+
+                                OutlinedButton(
+                                    onClick = {
+                                        showBraveMenu = false
+                                        addNewTab()
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF64B5F6)),
+                                    border = BorderStroke(1.dp, Color(0xFF3F445A)),
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 6.dp)
+                                ) {
+                                    Icon(Icons.Default.Add, contentDescription = "New Tab", modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(2.dp))
+                                    Text("New", fontSize = 11.sp)
+                                }
+
                                 OutlinedButton(
                                     onClick = {
                                         showBraveMenu = false
@@ -1284,11 +1464,12 @@ fun ReaderScreen(
                                     modifier = Modifier.weight(1f),
                                     shape = RoundedCornerShape(12.dp),
                                     colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF64B5F6)),
-                                    border = BorderStroke(1.dp, Color(0xFF3F445A))
+                                    border = BorderStroke(1.dp, Color(0xFF3F445A)),
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 6.dp)
                                 ) {
-                                    Icon(Icons.Default.Bookmark, contentDescription = "Bookmarks", modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Sites", fontSize = 12.sp)
+                                    Icon(Icons.Default.Bookmark, contentDescription = "Bookmarks", modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(2.dp))
+                                    Text("Sites", fontSize = 11.sp)
                                 }
 
                                 OutlinedButton(
@@ -1300,11 +1481,12 @@ fun ReaderScreen(
                                     modifier = Modifier.weight(1f),
                                     shape = RoundedCornerShape(12.dp),
                                     colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF64B5F6)),
-                                    border = BorderStroke(1.dp, Color(0xFF3F445A))
+                                    border = BorderStroke(1.dp, Color(0xFF3F445A)),
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 6.dp)
                                 ) {
-                                    Icon(Icons.Default.History, contentDescription = "History", modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("History", fontSize = 12.sp)
+                                    Icon(Icons.Default.History, contentDescription = "History", modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(2.dp))
+                                    Text("History", fontSize = 11.sp)
                                 }
                             }
                         }
@@ -1512,6 +1694,8 @@ fun ReaderScreen(
                                 .fillMaxWidth()
                                 .clickable {
                                     inputUrl = bookmark.url
+                                    currentUrl = bookmark.url
+                                    tabs = TabManager.updateTab(context, activeTabId, title = bookmark.name, url = bookmark.url)
                                     webViewRef?.loadUrl(bookmark.url)
                                     showBookmarksSheet = false
                                 }
@@ -1720,6 +1904,8 @@ fun ReaderScreen(
                                         .fillMaxWidth()
                                         .clickable {
                                             inputUrl = item.url
+                                            currentUrl = item.url
+                                            tabs = TabManager.updateTab(context, activeTabId, title = item.title, url = item.url)
                                             webViewRef?.loadUrl(item.url)
                                             showHistorySheet = false
                                             historySearchQuery = ""
@@ -1776,6 +1962,307 @@ fun ReaderScreen(
                     }
                 }
             }
+        }
+    }
+
+    // Tabs Switcher Dialog / Overview
+    if (showTabsSheet) {
+        Dialog(
+            onDismissRequest = { showTabsSheet = false },
+            properties = DialogProperties(
+                usePlatformDefaultWidth = false,
+                decorFitsSystemWindows = false
+            )
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.76f))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = { showTabsSheet = false }
+                    )
+                    .windowInsetsPadding(WindowInsets.safeDrawing)
+                    .padding(start = 16.dp, end = 16.dp, top = 24.dp, bottom = 24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .fillMaxHeight(0.88f)
+                        .border(
+                            width = 2.dp,
+                            color = Color(0xFF535A7B),
+                            shape = RoundedCornerShape(24.dp)
+                        )
+                        .clip(RoundedCornerShape(24.dp))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = { /* consume click */ }
+                        ),
+                    shape = RoundedCornerShape(24.dp),
+                    color = Color(0xFF141620),
+                    shadowElevation = 24.dp
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(16.dp)
+                    ) {
+                        // Header
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "📑 Tabs (${tabs.size})",
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                            }
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                // Add New Tab button in header
+                                OutlinedButton(
+                                    onClick = {
+                                        addNewTab()
+                                        showTabsSheet = false
+                                    },
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF64B5F6)),
+                                    border = BorderStroke(1.dp, Color(0xFF3F445A)),
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Add,
+                                        contentDescription = "New Tab",
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("New", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                }
+
+                                if (tabs.size > 1) {
+                                    TextButton(
+                                        onClick = {
+                                            closeAllTabs()
+                                            showTabsSheet = false
+                                        },
+                                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                                    ) {
+                                        Text(
+                                            text = "Close All",
+                                            color = Color(0xFFEF5350),
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
+                                }
+
+                                IconButton(onClick = { showTabsSheet = false }) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Close",
+                                        tint = Color.Gray
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // Grid of tabs
+                        LazyVerticalGrid(
+                            columns = GridCells.Adaptive(minSize = 145.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            items(tabs, key = { it.id }) { tab ->
+                                val isActive = tab.id == activeTabId
+                                val domain = runCatching { Uri.parse(tab.url).host }.getOrNull().orEmpty()
+                                val isComicSite = domain.contains("comix") || domain.contains("manga")
+
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(140.dp)
+                                        .clickable {
+                                            selectTab(tab.id)
+                                            showTabsSheet = false
+                                        },
+                                    shape = RoundedCornerShape(16.dp),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = if (isActive) Color(0xFF1E2438) else Color(0xFF1C1F2C)
+                                    ),
+                                    border = BorderStroke(
+                                        width = if (isActive) 2.dp else 1.dp,
+                                        color = if (isActive) Color(0xFF64B5F6) else Color(0xFF2E3346)
+                                    )
+                                ) {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .padding(10.dp),
+                                        verticalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        // Card Top: Icon, Domain, Close Button
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.weight(1f),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(
+                                                    text = if (isComicSite) "📚" else "🌐",
+                                                    fontSize = 13.sp
+                                                )
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text(
+                                                    text = domain.ifBlank { "Home" },
+                                                    color = Color(0xFF90A4AE),
+                                                    fontSize = 11.sp,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+
+                                            // Close Tab button
+                                            IconButton(
+                                                onClick = {
+                                                    closeTab(tab.id)
+                                                },
+                                                modifier = Modifier.size(24.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Close,
+                                                    contentDescription = "Close tab",
+                                                    tint = Color.Gray,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            }
+                                        }
+
+                                        // Card Middle: Title & Active Badge
+                                        Column(modifier = Modifier.weight(1f, fill = false)) {
+                                            Text(
+                                                text = tab.title.ifBlank { "New Tab" },
+                                                color = Color.White,
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                maxLines = 2,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            if (isActive) {
+                                                Spacer(modifier = Modifier.height(4.dp))
+                                                Box(
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(8.dp))
+                                                        .background(Color(0xFF1E88E5))
+                                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                                ) {
+                                                    Text(
+                                                        text = "ACTIVE",
+                                                        color = Color.White,
+                                                        fontSize = 9.sp,
+                                                        fontWeight = FontWeight.ExtraBold
+                                                    )
+                                                }
+                                            }
+                                        }
+
+                                        // Card Bottom: URL preview
+                                        Text(
+                                            text = tab.url,
+                                            color = Color.DarkGray,
+                                            fontSize = 10.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // Bottom New Tab button
+                        Button(
+                            onClick = {
+                                addNewTab()
+                                showTabsSheet = false
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(46.dp),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2979FF))
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Add,
+                                contentDescription = "New Tab",
+                                modifier = Modifier.size(18.dp),
+                                tint = Color.White
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "New Tab",
+                                color = Color.White,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Tab counter badge button displaying the number of active tabs inside a rounded box.
+ */
+@Composable
+private fun TabBadgeButton(
+    tabCount: Int,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    IconButton(
+        onClick = onClick,
+        modifier = modifier
+    ) {
+        Box(
+            modifier = Modifier
+                .size(24.dp)
+                .border(
+                    width = 1.8.dp,
+                    color = Color.White,
+                    shape = RoundedCornerShape(6.dp)
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = if (tabCount > 99) "99+" else tabCount.toString(),
+                color = Color.White,
+                fontSize = if (tabCount > 9) 10.sp else 12.sp,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+                lineHeight = 12.sp
+            )
         }
     }
 }
