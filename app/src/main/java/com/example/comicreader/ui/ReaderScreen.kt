@@ -328,6 +328,10 @@ fun ReaderScreen(
     var customBookmarkName by remember { mutableStateOf("") }
     var customBookmarkUrl by remember { mutableStateOf("") }
 
+    // Fullscreen video state (YouTube / HTML5 media)
+    var customVideoView by remember { mutableStateOf<android.view.View?>(null) }
+    var customVideoCallback by remember { mutableStateOf<android.webkit.WebChromeClient.CustomViewCallback?>(null) }
+
     // Initialize activity fullscreen & screen awake settings
     LaunchedEffect(isImmersiveFullscreen) {
         onToggleFullscreen(isImmersiveFullscreen)
@@ -338,8 +342,12 @@ fun ReaderScreen(
     }
 
     // Hardware back press handler
-    BackHandler(enabled = showTabsSheet || canGoBack || !isHomeTab) {
-        if (showTabsSheet) {
+    BackHandler(enabled = customVideoView != null || showTabsSheet || canGoBack || !isHomeTab) {
+        if (customVideoView != null) {
+            customVideoCallback?.onCustomViewHidden()
+            customVideoView = null
+            customVideoCallback = null
+        } else if (showTabsSheet) {
             showTabsSheet = false
         } else if (webViewRef?.canGoBack() == true) {
             webViewRef?.goBack()
@@ -374,7 +382,7 @@ fun ReaderScreen(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Full-Width Firefox-style URL / Search bar
+                    // Full-Width URL / Search bar
                     val displayUrl = if (inputUrl == AppPreferences.DEFAULT_HOME_URL || inputUrl == "about:home") "" else inputUrl
                     OutlinedTextField(
                         value = displayUrl,
@@ -418,32 +426,17 @@ fun ReaderScreen(
                             }
                         },
                         trailingIcon = {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                if (displayUrl.isNotEmpty()) {
-                                    IconButton(
-                                        onClick = { inputUrl = "" },
-                                        modifier = Modifier.size(28.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Close,
-                                            contentDescription = "Clear",
-                                            tint = Color.Gray,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                    }
-                                }
-                                if (!isHomeTab) {
-                                    IconButton(
-                                        onClick = { webViewRef?.reload() },
-                                        modifier = Modifier.size(28.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Refresh,
-                                            contentDescription = "Reload",
-                                            tint = Color.White,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                    }
+                            if (displayUrl.isNotEmpty()) {
+                                IconButton(
+                                    onClick = { inputUrl = "" },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Clear",
+                                        tint = Color.Gray,
+                                        modifier = Modifier.size(16.dp)
+                                    )
                                 }
                             }
                         },
@@ -467,22 +460,22 @@ fun ReaderScreen(
 
                     Spacer(modifier = Modifier.width(6.dp))
 
-                    // Tabs Switcher Button
-                    TabBadgeButton(
-                        tabCount = tabs.size,
-                        isIncognito = activeTab.isIncognito,
-                        onClick = { showTabsSheet = true }
-                    )
-
-                    // Brave Menu (⋮)
+                    // Dedicated Refresh Button
                     IconButton(
-                        onClick = { showBraveMenu = true },
-                        modifier = Modifier.size(36.dp)
+                        onClick = {
+                            if (isHomeTab) {
+                                tabWebViews[activeTabId]?.reload()
+                            } else {
+                                webViewRef?.reload()
+                            }
+                        },
+                        modifier = Modifier.size(40.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.MoreVert,
-                            contentDescription = "Menu & Settings",
-                            tint = Color.White
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Refresh",
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
                         )
                     }
                 }
@@ -526,6 +519,14 @@ fun ReaderScreen(
                                 (existing.parent as? ViewGroup)?.removeView(existing)
                                 existing.onResume()
                                 existing.resumeTimers()
+                                existing.onShowCustomView = { view, callback ->
+                                    customVideoView = view
+                                    customVideoCallback = callback
+                                }
+                                existing.onHideCustomView = {
+                                    customVideoView = null
+                                    customVideoCallback = null
+                                }
                                 if (existing.url != activeTab.url && activeTab.url.startsWith("http")) {
                                     existing.loadUrl(activeTab.url)
                                 }
@@ -537,6 +538,15 @@ fun ReaderScreen(
                                         ViewGroup.LayoutParams.MATCH_PARENT
                                     )
                                     configureIncognito(activeTab.isIncognito)
+
+                                    onShowCustomView = { view, callback ->
+                                        customVideoView = view
+                                        customVideoCallback = callback
+                                    }
+                                    onHideCustomView = {
+                                        customVideoView = null
+                                        customVideoCallback = null
+                                    }
 
                                     onProgressChanged = { progress ->
                                         if (activeTabId == targetTabId) {
@@ -668,7 +678,7 @@ fun ReaderScreen(
                     .then(if (!isImmersiveFullscreen) Modifier.navigationBarsPadding() else Modifier)
                     .padding(horizontal = 12.dp, vertical = 6.dp)
             ) {
-                // Clean Bottom Navigation Bar (No arrows - swiping controlled)
+                // Bottom Navigation Bar (Back, Forward, Home, Tabs, Menu)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -676,6 +686,42 @@ fun ReaderScreen(
                     horizontalArrangement = Arrangement.SpaceAround,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    // Back Button
+                    IconButton(
+                        onClick = {
+                            if (webViewRef?.canGoBack() == true) {
+                                webViewRef?.goBack()
+                            } else if (!isHomeTab) {
+                                val homeUrl = AppPreferences.DEFAULT_HOME_URL
+                                currentUrl = homeUrl
+                                inputUrl = ""
+                                pageTitle = if (activeTab.isIncognito) "Private Tab" else "Home"
+                                tabs = TabManager.updateTab(context, activeTabId, title = pageTitle, url = homeUrl)
+                            }
+                        },
+                        enabled = canGoBack || !isHomeTab
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = if (canGoBack || !isHomeTab) Color.White else Color.Gray.copy(alpha = 0.4f)
+                        )
+                    }
+
+                    // Forward Button
+                    IconButton(
+                        onClick = {
+                            webViewRef?.let { if (it.canGoForward()) it.goForward() }
+                        },
+                        enabled = canGoForward
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                            contentDescription = "Forward",
+                            tint = if (canGoForward) Color.White else Color.Gray.copy(alpha = 0.4f)
+                        )
+                    }
+
                     // Home Button
                     IconButton(onClick = {
                         val homeUrl = AppPreferences.DEFAULT_HOME_URL
@@ -689,36 +735,6 @@ fun ReaderScreen(
                             contentDescription = "Home",
                             tint = if (isHomeTab) (if (activeTab.isIncognito) Color(0xFFA855F7) else Color(0xFF64B5F6)) else Color.White
                         )
-                    }
-
-                    // + New Tab Button
-                    IconButton(onClick = { addNewTab(isIncognito = activeTab.isIncognito) }) {
-                        Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = "New Tab",
-                            tint = Color.White
-                        )
-                    }
-
-                    // Incognito / Private Tab Quick Launcher
-                    IconButton(onClick = {
-                        val existingIncognito = tabs.firstOrNull { it.isIncognito }
-                        if (existingIncognito != null && !activeTab.isIncognito) {
-                            selectTab(existingIncognito.id)
-                        } else {
-                            addNewTab(isIncognito = true)
-                        }
-                    }) {
-                        Surface(
-                            shape = CircleShape,
-                            color = if (activeTab.isIncognito) Color(0xFF581C87) else Color.Transparent
-                        ) {
-                            Text(
-                                text = "🕶️",
-                                fontSize = 16.sp,
-                                modifier = Modifier.padding(6.dp)
-                            )
-                        }
                     }
 
                     // Tabs Switcher Button
@@ -741,7 +757,27 @@ fun ReaderScreen(
         }
     }
 
-
+    // Fullscreen HTML5 / YouTube video player overlay
+    if (customVideoView != null) {
+        Dialog(
+            onDismissRequest = {
+                customVideoCallback?.onCustomViewHidden()
+                customVideoView = null
+                customVideoCallback = null
+            },
+            properties = DialogProperties(
+                usePlatformDefaultWidth = false,
+                decorFitsSystemWindows = false
+            )
+        ) {
+            AndroidView(
+                factory = { customVideoView!! },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black)
+            )
+        }
+    }
 
     // Brave Browser-Style Unified Menu (All settings visible, safe boundary borders)
     if (showBraveMenu || showSettingsSheet || showAdBlockDialog) {

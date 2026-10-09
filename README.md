@@ -195,7 +195,9 @@ A high-performance Android browser app engineered specifically for reading onlin
 | Feature | Control | Description |
 |---|---|---|
 | **Toggle Browser / Fullscreen** | Scroll Down / Up or Tap | Automatically switches to fullscreen when scrolling down; restores browser when scrolling up or tapping |
-| **Tab Switcher** | Tab counter badge in top bar | Open tab switcher sheet, switch active tabs, close tabs, or clear all tabs |
+| **Tab Switcher** | Tab counter badge in bottom bar | Open tab switcher sheet, switch active tabs, close tabs, or clear all tabs |
+| **Back / Forward Navigation** | Back / Forward buttons in bottom bar (or swipe gestures) | Move backward and forward through web history or return to Home |
+| **Refresh Page** | Dedicated Refresh button in upper bar | Reload active web page or refresh home content |
 | **Incognito Mode** | New Private Tab in tab sheet | Browse privately with cache/cookies disabled, purple theme, and no history tracking |
 | **Horizontal Swipe Navigation** | Swipe Left / Right on screen | Swipe right to navigate back (or return to Home); swipe left to navigate forward |
 | **Home Dashboard** | Return to `about:home` or New Tab | Access multi-engine search, curated manhwa directory, bookmarks, and recent history |

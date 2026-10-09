@@ -2,6 +2,7 @@ package com.example.comicreader.ui
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
@@ -12,6 +13,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.inputmethod.InputMethodManager
 import android.webkit.ConsoleMessage
+import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -45,6 +47,8 @@ class ComicWebView @JvmOverloads constructor(
     var onSwipeBackToHome: (() -> Unit)? = null
     var onSwipeBack: (() -> Unit)? = null
     var onSwipeForward: (() -> Unit)? = null
+    var onShowCustomView: ((view: View, callback: WebChromeClient.CustomViewCallback) -> Unit)? = null
+    var onHideCustomView: (() -> Unit)? = null
 
     private var isInvertedMode: Boolean = false
     private var downX = 0f
@@ -95,7 +99,8 @@ class ComicWebView @JvmOverloads constructor(
      * Enables hardware acceleration and smooth rasterization for high refresh rates.
      */
     private fun setupHardwareAcceleration() {
-        setLayerType(View.LAYER_TYPE_HARDWARE, null)
+        // Do not force LAYER_TYPE_HARDWARE on WebView itself to prevent breaking HTML5 video surfaces
+        setLayerType(View.LAYER_TYPE_NONE, null)
         isNestedScrollingEnabled = true
         isVerticalScrollBarEnabled = false
         isHorizontalScrollBarEnabled = false
@@ -107,14 +112,17 @@ class ComicWebView @JvmOverloads constructor(
         settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
+            databaseEnabled = true
             useWideViewPort = true
             loadWithOverviewMode = true
             builtInZoomControls = true
             displayZoomControls = false
             setSupportZoom(true)
             cacheMode = WebSettings.LOAD_DEFAULT
-            mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+            mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
             mediaPlaybackRequiresUserGesture = false
+            allowFileAccess = true
+            allowContentAccess = true
 
             // Optimize text encoding and zoom
             defaultTextEncodingName = "utf-8"
@@ -124,7 +132,19 @@ class ComicWebView @JvmOverloads constructor(
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 safeBrowsingEnabled = true
             }
+
+            // Clean User-Agent: strip "Version/4.0 " and "; wv" so YouTube and streaming services
+            // recognize standard Chrome Mobile and serve full MSE video playback
+            val currentUa = userAgentString ?: ""
+            userAgentString = currentUa
+                .replace("Version/4.0 ", "")
+                .replace("; wv", "")
         }
+
+        // Enable cookies and third-party cookies for embedded videos and YouTube
+        val cookieManager = CookieManager.getInstance()
+        cookieManager.setAcceptCookie(true)
+        cookieManager.setAcceptThirdPartyCookies(this, true)
     }
 
     private fun setupClients() {
@@ -137,7 +157,28 @@ class ComicWebView @JvmOverloads constructor(
                 val urlString = uri.toString()
                 val currentHost = runCatching { Uri.parse(this@ComicWebView.url).host }.getOrNull()
 
-                // Block dangerous ad redirect schemes (intent:, market:, etc.)
+                // YouTube handling: if it's a YouTube intent or vnd.youtube, try launching YouTube app or extract fallback URL
+                if (urlString.startsWith("vnd.youtube:") || (urlString.startsWith("intent:") && (urlString.contains("youtube") || urlString.contains("youtu.be")))) {
+                    try {
+                        val intent = Intent.parseUri(urlString, Intent.URI_INTENT_SCHEME)
+                        if (intent != null) {
+                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            if (intent.resolveActivity(context.packageManager) != null) {
+                                context.startActivity(intent)
+                                return true
+                            }
+                            val fallbackUrl = intent.getStringExtra("browser_fallback_url")
+                            if (!fallbackUrl.isNullOrBlank()) {
+                                this@ComicWebView.loadUrl(fallbackUrl)
+                                return true
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to resolve YouTube intent: $urlString", e)
+                    }
+                }
+
+                // Block dangerous ad redirect schemes (market:, itms:, etc.)
                 if (AdBlockEngine.isDangerousRedirectScheme(urlString)) {
                     post { onBlockedAdCountChanged?.invoke(AdBlockEngine.getBlockedCount() + 1) }
                     return true
@@ -176,8 +217,11 @@ class ComicWebView @JvmOverloads constructor(
                 AdBlockEngine.resetCounter()
                 onBlockedAdCountChanged?.invoke(0)
 
-                // Inject Anti-popup script as early as possible to kill window.open and click traps
-                evaluateJavascript(AdBlockEngine.ANTI_POPUP_JS, null)
+                // Inject Anti-popup script (safeguarded against YouTube)
+                val host = url?.let { runCatching { Uri.parse(it).host }.getOrNull() }.orEmpty()
+                if (!AdBlockEngine.isYouTubeDomain(host)) {
+                    evaluateJavascript(AdBlockEngine.ANTI_POPUP_JS, null)
+                }
                 // Inject input focus listener to trigger keyboard when site search bars are focused
                 evaluateJavascript(INPUT_FOCUS_JS, null)
             }
@@ -186,12 +230,13 @@ class ComicWebView @JvmOverloads constructor(
                 super.onPageFinished(view, url)
                 url?.let { onUrlChanged?.invoke(it) }
 
-                // Inject CSS cosmetic filtering to hide ad placeholders
                 val host = url?.let { runCatching { Uri.parse(it).host }.getOrNull() }.orEmpty()
-                evaluateJavascript(AdBlockEngine.getCosmeticCss(host), null)
-
-                // Re-inject Anti-popup script for dynamically loaded ad nodes
-                evaluateJavascript(AdBlockEngine.ANTI_POPUP_JS, null)
+                if (!AdBlockEngine.isYouTubeDomain(host)) {
+                    // Inject CSS cosmetic filtering to hide ad placeholders
+                    evaluateJavascript(AdBlockEngine.getCosmeticCss(host), null)
+                    // Re-inject Anti-popup script for dynamically loaded ad nodes
+                    evaluateJavascript(AdBlockEngine.ANTI_POPUP_JS, null)
+                }
 
                 // Re-inject input focus listener
                 evaluateJavascript(INPUT_FOCUS_JS, null)
@@ -211,6 +256,26 @@ class ComicWebView @JvmOverloads constructor(
         }
 
         webChromeClient = object : WebChromeClient() {
+            private var customVideoView: View? = null
+            private var customVideoCallback: CustomViewCallback? = null
+
+            override fun onShowCustomView(view: View?, callback: CustomViewCallback?) {
+                if (view == null || callback == null) return
+                if (customVideoView != null) {
+                    onHideCustomView()
+                    return
+                }
+                customVideoView = view
+                customVideoCallback = callback
+                this@ComicWebView.onShowCustomView?.invoke(view, callback)
+            }
+
+            override fun onHideCustomView() {
+                customVideoView = null
+                customVideoCallback?.onCustomViewHidden()
+                customVideoCallback = null
+                this@ComicWebView.onHideCustomView?.invoke()
+            }
             override fun onProgressChanged(view: WebView?, newProgress: Int) {
                 super.onProgressChanged(view, newProgress)
                 onProgressChanged?.invoke(newProgress)

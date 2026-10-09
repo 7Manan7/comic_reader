@@ -236,6 +236,11 @@ object AdBlockEngine {
 
         val host = extractHost(lowerUrl) ?: return false
 
+        // Safeguard: Never block YouTube video streams (googlevideo.com), players, or thumbnails
+        if (isYouTubeDomain(host)) {
+            return false
+        }
+
         // Check if user explicitly whitelisted this domain
         if (whitelistedDomains.any { wl -> host == wl || host.endsWith(".$wl") }) {
             return false
@@ -273,6 +278,19 @@ object AdBlockEngine {
         return false
     }
 
+    /**
+     * Checks if the given domain belongs to YouTube video, image CDN, or stream delivery.
+     */
+    fun isYouTubeDomain(host: String): Boolean {
+        if (host.isBlank()) return false
+        val clean = host.lowercase(Locale.ROOT).removePrefix("www.")
+        return clean == "youtube.com" || clean.endsWith(".youtube.com") ||
+                clean == "youtu.be" || clean.endsWith(".youtu.be") ||
+                clean == "googlevideo.com" || clean.endsWith(".googlevideo.com") ||
+                clean == "ytimg.com" || clean.endsWith(".ytimg.com") ||
+                clean == "youtube-nocookie.com" || clean.endsWith(".youtube-nocookie.com")
+    }
+
     private fun isSameFirstPartyHost(host: String, currentHost: String?): Boolean {
         if (currentHost.isNullOrBlank()) return false
         val h = host.lowercase(Locale.ROOT).removePrefix("www.")
@@ -281,12 +299,10 @@ object AdBlockEngine {
     }
 
     /**
-     * Checks if scheme is a rogue redirect (e.g. intent, market, deep link) used by ad networks.
+     * Checks if scheme is a rogue redirect (e.g. market, app store) used by ad networks.
      */
     fun isDangerousRedirectScheme(url: String): Boolean {
-        return url.startsWith("intent:") ||
-                url.startsWith("market:") ||
-                url.startsWith("vnd.youtube:") ||
+        return url.startsWith("market:") ||
                 url.startsWith("itms-appss:") ||
                 url.startsWith("alipayqr:")
     }
@@ -543,6 +559,11 @@ object AdBlockEngine {
 
     const val ANTI_POPUP_JS = """
         (function() {
+            // Never run anti-popup on YouTube to avoid interfering with HTML5 video player
+            if (location.hostname.indexOf('youtube.com') !== -1 || location.hostname.indexOf('youtu.be') !== -1) {
+                return;
+            }
+
             // Neutralize window.open: return dummy window object to satisfy ad scripts without opening popups
             var dummyWin = {
                 closed: true,
@@ -586,6 +607,10 @@ object AdBlockEngine {
                     var els = document.querySelectorAll('div, a, span, iframe');
                     for (var i = 0; i < els.length; i++) {
                         var el = els[i];
+                        // Protect genuine video and media player elements
+                        if (el.tagName === 'VIDEO' || el.querySelector('video, iframe[src*="youtube"], iframe[src*="youtu.be"]')) {
+                            continue;
+                        }
                         var style = window.getComputedStyle(el);
                         if (style && (style.position === 'fixed' || style.position === 'absolute')) {
                             var z = parseInt(style.zIndex, 10);
