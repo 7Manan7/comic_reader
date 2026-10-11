@@ -172,6 +172,7 @@ fun ReaderScreen(
     var blockedAdCount by remember { mutableIntStateOf(0) }
 
     var webViewRef by remember { mutableStateOf<ComicWebView?>(null) }
+    var isVideoPlaying by remember { mutableStateOf(false) }
 
     // Multi-tab WebViews cache (keeps background tabs in memory for instant switching without losing reading progress)
     val tabWebViews = remember { mutableMapOf<String, ComicWebView>() }
@@ -179,6 +180,7 @@ fun ReaderScreen(
     fun selectTab(tabId: String) {
         if (tabId != activeTabId) {
             tabWebViews[activeTabId]?.onPause()
+            isVideoPlaying = false
             activeTabId = tabId
             TabManager.setActiveTabId(context, tabId)
             val target = tabs.find { it.id == tabId }
@@ -337,8 +339,8 @@ fun ReaderScreen(
         onToggleFullscreen(isImmersiveFullscreen)
     }
 
-    LaunchedEffect(isKeepScreenOn) {
-        onToggleKeepScreenOn(isKeepScreenOn)
+    LaunchedEffect(isKeepScreenOn, isVideoPlaying) {
+        onToggleKeepScreenOn(isKeepScreenOn || isVideoPlaying)
     }
 
     // Hardware back press handler
@@ -546,6 +548,11 @@ fun ReaderScreen(
                                     onHideCustomView = {
                                         customVideoView = null
                                         customVideoCallback = null
+                                    }
+                                    onVideoPlaybackChanged = { isPlaying ->
+                                        if (activeTabId == targetTabId) {
+                                            isVideoPlaying = isPlaying
+                                        }
                                     }
 
                                     onProgressChanged = { progress ->
@@ -1317,7 +1324,7 @@ fun ReaderScreen(
                                             checked = isKeepScreenOn,
                                             onCheckedChange = {
                                                 isKeepScreenOn = it
-                                                onToggleKeepScreenOn(it)
+                                                onToggleKeepScreenOn(it || isVideoPlaying)
                                                 AppPreferences.setKeepScreenOn(context, it)
                                             }
                                         )

@@ -23,6 +23,7 @@ import android.webkit.WebView
 import android.webkit.WebView.HitTestResult
 import android.webkit.WebViewClient
 import com.example.comicreader.adblock.AdBlockEngine
+import com.example.comicreader.youtube.YouTubeOptimizer
 
 /**
  * High-performance hardware-accelerated WebView optimized for comic/manga reading
@@ -49,6 +50,7 @@ class ComicWebView @JvmOverloads constructor(
     var onSwipeForward: (() -> Unit)? = null
     var onShowCustomView: ((view: View, callback: WebChromeClient.CustomViewCallback) -> Unit)? = null
     var onHideCustomView: (() -> Unit)? = null
+    var onVideoPlaybackChanged: ((Boolean) -> Unit)? = null
 
     private var isInvertedMode: Boolean = false
     private var downX = 0f
@@ -75,6 +77,13 @@ class ComicWebView @JvmOverloads constructor(
                 }
                 val imm = webView.context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
                 imm?.showSoftInput(webView, 0)
+            }
+        }
+
+        @JavascriptInterface
+        fun onVideoPlaybackStateChanged(isPlaying: Boolean) {
+            webView.post {
+                webView.onVideoPlaybackChanged?.invoke(isPlaying)
             }
         }
     }
@@ -217,9 +226,12 @@ class ComicWebView @JvmOverloads constructor(
                 AdBlockEngine.resetCounter()
                 onBlockedAdCountChanged?.invoke(0)
 
-                // Inject Anti-popup script (safeguarded against YouTube)
+                // Inject Anti-popup script (safeguarded against YouTube) or YouTube App Optimizer
                 val host = url?.let { runCatching { Uri.parse(it).host }.getOrNull() }.orEmpty()
-                if (!AdBlockEngine.isYouTubeDomain(host)) {
+                if (YouTubeOptimizer.isYouTube(url)) {
+                    evaluateJavascript(YouTubeOptimizer.YOUTUBE_APP_CSS, null)
+                    evaluateJavascript(YouTubeOptimizer.YOUTUBE_OPTIMIZER_JS, null)
+                } else if (!AdBlockEngine.isYouTubeDomain(host)) {
                     evaluateJavascript(AdBlockEngine.ANTI_POPUP_JS, null)
                 }
                 // Inject input focus listener to trigger keyboard when site search bars are focused
@@ -231,7 +243,10 @@ class ComicWebView @JvmOverloads constructor(
                 url?.let { onUrlChanged?.invoke(it) }
 
                 val host = url?.let { runCatching { Uri.parse(it).host }.getOrNull() }.orEmpty()
-                if (!AdBlockEngine.isYouTubeDomain(host)) {
+                if (YouTubeOptimizer.isYouTube(url)) {
+                    evaluateJavascript(YouTubeOptimizer.YOUTUBE_APP_CSS, null)
+                    evaluateJavascript(YouTubeOptimizer.YOUTUBE_OPTIMIZER_JS, null)
+                } else if (!AdBlockEngine.isYouTubeDomain(host)) {
                     // Inject CSS cosmetic filtering to hide ad placeholders
                     evaluateJavascript(AdBlockEngine.getCosmeticCss(host), null)
                     // Re-inject Anti-popup script for dynamically loaded ad nodes
@@ -252,6 +267,10 @@ class ComicWebView @JvmOverloads constructor(
             override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
                 super.doUpdateVisitedHistory(view, url, isReload)
                 url?.let { onUrlChanged?.invoke(it) }
+                if (YouTubeOptimizer.isYouTube(url)) {
+                    evaluateJavascript(YouTubeOptimizer.YOUTUBE_APP_CSS, null)
+                    evaluateJavascript(YouTubeOptimizer.YOUTUBE_OPTIMIZER_JS, null)
+                }
             }
         }
 
@@ -379,9 +398,12 @@ class ComicWebView @JvmOverloads constructor(
                 val deltaX = event.x - downX
                 val deltaY = Math.abs(event.y - downY)
                 val dt = System.currentTimeMillis() - downTime
+                val isYouTubePage = YouTubeOptimizer.isYouTube(url)
 
                 // Horizontal swipe gesture navigation (Back / Forward)
-                val isHorizontalSwipe = Math.abs(deltaX) > 110 && deltaY < Math.abs(deltaX) * 0.65f && dt in 50..650
+                // When on YouTube, prevent horizontal swipe if user touched the player area (top 55%) to allow video scrubbing
+                val isTouchInPlayerArea = isYouTubePage && downY < height * 0.55f
+                val isHorizontalSwipe = !isTouchInPlayerArea && Math.abs(deltaX) > 110 && deltaY < Math.abs(deltaX) * 0.65f && dt in 50..650
                 if (isHorizontalSwipe) {
                     if (deltaX > 0) {
                         // Swiped right -> Go Back
@@ -418,11 +440,10 @@ class ComicWebView @JvmOverloads constructor(
                     }
 
                     // Only allow tap-to-toggle HUD when tapping in the center reading zone.
-                    // Taps in the top zone (site header, search button, tabs) or bottom zone
-                    // (pagination, chapter buttons, footer) must NEVER toggle HUD.
+                    // On YouTube, all taps should pass directly to the player controls, seekbar, and video cards.
                     val inCenterZoneY = event.y in (height * 0.30f)..(height * 0.70f)
                     val inCenterZoneX = event.x in (width * 0.20f)..(width * 0.80f)
-                    if (inCenterZoneY && inCenterZoneX) {
+                    if (!isYouTubePage && inCenterZoneY && inCenterZoneX) {
                         val isNavigableLink = hitType == HitTestResult.SRC_ANCHOR_TYPE ||
                                               hitType == HitTestResult.SRC_IMAGE_ANCHOR_TYPE ||
                                               hitType == HitTestResult.EDIT_TEXT_TYPE ||

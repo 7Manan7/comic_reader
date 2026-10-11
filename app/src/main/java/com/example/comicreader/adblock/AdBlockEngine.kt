@@ -299,10 +299,12 @@ object AdBlockEngine {
     }
 
     /**
-     * Checks if scheme is a rogue redirect (e.g. market, app store) used by ad networks.
+     * Checks if scheme is a rogue redirect (e.g. intent, market, deep link) used by ad networks.
      */
     fun isDangerousRedirectScheme(url: String): Boolean {
-        return url.startsWith("market:") ||
+        return url.startsWith("intent:") ||
+                url.startsWith("market:") ||
+                url.startsWith("vnd.youtube:") ||
                 url.startsWith("itms-appss:") ||
                 url.startsWith("alipayqr:")
     }
