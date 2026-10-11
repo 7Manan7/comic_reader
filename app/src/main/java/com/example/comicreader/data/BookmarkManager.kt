@@ -47,8 +47,13 @@ object BookmarkManager {
     }
 
     fun addBookmark(context: Context, name: String, url: String, icon: String = "📖"): List<Bookmark> {
+        val trimmed = url.trim()
+        if (trimmed.isBlank() || trimmed.startsWith("about:") || trimmed.startsWith("data:")) {
+            return getBookmarks(context)
+        }
         val current = getBookmarks(context).toMutableList()
-        val normalizedUrl = if (url.startsWith("http://") || url.startsWith("https://")) url else "https://$url"
+        val normalizedUrl = if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) trimmed else "https://$trimmed"
+        current.removeAll { it.url.trimEnd('/').equals(normalizedUrl.trimEnd('/'), ignoreCase = true) }
         val id = UUID.randomUUID().toString()
         val cleanName = name.ifBlank { normalizedUrl.substringAfter("://").substringBefore("/") }
         current.add(Bookmark(id, cleanName, normalizedUrl, icon))

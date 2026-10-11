@@ -76,7 +76,11 @@ object RefreshRateManager {
         val display = getDisplay(activity) ?: return
         val modes = display.supportedModes ?: return
 
-        val maxMode = modes.maxByOrNull { it.refreshRate }
+        val matchingResolutionModes = modes.filter {
+            it.physicalWidth == display.mode.physicalWidth && it.physicalHeight == display.mode.physicalHeight
+        }.ifEmpty { modes.toList() }
+
+        val maxMode = matchingResolutionModes.maxByOrNull { it.refreshRate }
         if (maxMode != null) {
             applyDisplayMode(activity, maxMode)
             _selectedModeLabel.value = "Auto (Max: ${maxMode.refreshRate.roundToInt()}Hz)"
@@ -100,8 +104,13 @@ object RefreshRateManager {
         val display = getDisplay(activity) ?: return
         val modes = display.supportedModes ?: return
 
+        // Prefer modes matching native display resolution
+        val matchingResolutionModes = modes.filter {
+            it.physicalWidth == display.mode.physicalWidth && it.physicalHeight == display.mode.physicalHeight
+        }.ifEmpty { modes.toList() }
+
         // Find the mode closest to targetHz
-        val bestMode = modes.minByOrNull { kotlin.math.abs(it.refreshRate - targetHz) }
+        val bestMode = matchingResolutionModes.minByOrNull { kotlin.math.abs(it.refreshRate - targetHz) }
         if (bestMode != null) {
             applyDisplayMode(activity, bestMode)
             _selectedModeLabel.value = "${targetHz.roundToInt()} Hz"

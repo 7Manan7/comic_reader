@@ -58,6 +58,11 @@ class ComicWebView @JvmOverloads constructor(
     private var downTime = 0L
     private var lastScrollDirectionChangeTime = 0L
 
+    @Volatile
+    private var currentLoadedHost: String? = null
+    private var lastRequestedUrl: String? = null
+    private var isDestroyed: Boolean = false
+
     init {
         isFocusable = true
         isFocusableInTouchMode = true
@@ -67,9 +72,12 @@ class ComicWebView @JvmOverloads constructor(
         addJavascriptInterface(WebInputBridge(this), "KuroBridge")
     }
 
-    private class WebInputBridge(private val webView: ComicWebView) {
+    private class WebInputBridge(webView: ComicWebView) {
+        private val webViewRef = java.lang.ref.WeakReference(webView)
+
         @JavascriptInterface
         fun onInputFocused() {
+            val webView = webViewRef.get() ?: return
             webView.post {
                 if (!webView.hasFocus()) {
                     webView.requestFocus()
@@ -82,6 +90,7 @@ class ComicWebView @JvmOverloads constructor(
 
         @JavascriptInterface
         fun onVideoPlaybackStateChanged(isPlaying: Boolean) {
+            val webView = webViewRef.get() ?: return
             webView.post {
                 webView.onVideoPlaybackChanged?.invoke(isPlaying)
             }
@@ -164,32 +173,40 @@ class ComicWebView @JvmOverloads constructor(
             ): Boolean {
                 val uri = request?.url ?: return false
                 val urlString = uri.toString()
-                val currentHost = runCatching { Uri.parse(this@ComicWebView.url).host }.getOrNull()
+                val currentHost = currentLoadedHost
 
-                // YouTube handling: if it's a YouTube intent or vnd.youtube, try launching YouTube app or extract fallback URL
-                if (urlString.startsWith("vnd.youtube:") || (urlString.startsWith("intent:") && (urlString.contains("youtube") || urlString.contains("youtu.be")))) {
+                // Handle vnd.youtube schemes cleanly inside Kuro Reader:
+                if (urlString.startsWith("vnd.youtube:")) {
+                    val videoId = urlString.substringAfter("vnd.youtube:").substringBefore("?").substringBefore("&")
+                    if (videoId.isNotBlank()) {
+                        this@ComicWebView.loadUrl("https://www.youtube.com/watch?v=$videoId")
+                        return true
+                    }
+                }
+
+                // Handle intent schemes with browser fallbacks:
+                if (urlString.startsWith("intent:")) {
                     try {
                         val intent = Intent.parseUri(urlString, Intent.URI_INTENT_SCHEME)
-                        if (intent != null) {
-                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            if (intent.resolveActivity(context.packageManager) != null) {
-                                context.startActivity(intent)
-                                return true
-                            }
-                            val fallbackUrl = intent.getStringExtra("browser_fallback_url")
-                            if (!fallbackUrl.isNullOrBlank()) {
-                                this@ComicWebView.loadUrl(fallbackUrl)
-                                return true
-                            }
+                        val fallbackUrl = intent?.getStringExtra("browser_fallback_url")
+                        if (!fallbackUrl.isNullOrBlank() && (fallbackUrl.startsWith("http://") || fallbackUrl.startsWith("https://"))) {
+                            this@ComicWebView.loadUrl(fallbackUrl)
+                            return true
+                        }
+                        val dataUri = intent?.data
+                        if (dataUri != null && (dataUri.scheme == "http" || dataUri.scheme == "https")) {
+                            this@ComicWebView.loadUrl(dataUri.toString())
+                            return true
                         }
                     } catch (e: Exception) {
-                        Log.w(TAG, "Failed to resolve YouTube intent: $urlString", e)
+                        Log.w(TAG, "Failed to resolve intent: $urlString", e)
                     }
                 }
 
                 // Block dangerous ad redirect schemes (market:, itms:, etc.)
                 if (AdBlockEngine.isDangerousRedirectScheme(urlString)) {
-                    post { onBlockedAdCountChanged?.invoke(AdBlockEngine.getBlockedCount() + 1) }
+                    val blockedCount = AdBlockEngine.incrementBlockedCount()
+                    post { onBlockedAdCountChanged?.invoke(blockedCount) }
                     return true
                 }
 
@@ -212,7 +229,7 @@ class ComicWebView @JvmOverloads constructor(
                 request: WebResourceRequest?
             ): WebResourceResponse? {
                 val url = request?.url ?: return super.shouldInterceptRequest(view, request)
-                val currentHost = runCatching { Uri.parse(this@ComicWebView.url).host }.getOrNull()
+                val currentHost = currentLoadedHost
                 if (AdBlockEngine.isAd(url, currentHost)) {
                     post { onBlockedAdCountChanged?.invoke(AdBlockEngine.getBlockedCount()) }
                     return AdBlockEngine.createEmptyResponse()
@@ -222,7 +239,9 @@ class ComicWebView @JvmOverloads constructor(
 
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                 super.onPageStarted(view, url, favicon)
+                currentLoadedHost = url?.let { runCatching { Uri.parse(it).host }.getOrNull() }
                 url?.let { onUrlChanged?.invoke(it) }
+                onVideoPlaybackChanged?.invoke(false)
                 AdBlockEngine.resetCounter()
                 onBlockedAdCountChanged?.invoke(0)
 
@@ -240,6 +259,7 @@ class ComicWebView @JvmOverloads constructor(
 
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
+                currentLoadedHost = url?.let { runCatching { Uri.parse(it).host }.getOrNull() }
                 url?.let { onUrlChanged?.invoke(it) }
 
                 val host = url?.let { runCatching { Uri.parse(it).host }.getOrNull() }.orEmpty()
@@ -266,6 +286,7 @@ class ComicWebView @JvmOverloads constructor(
 
             override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
                 super.doUpdateVisitedHistory(view, url, isReload)
+                currentLoadedHost = url?.let { runCatching { Uri.parse(it).host }.getOrNull() }
                 url?.let { onUrlChanged?.invoke(it) }
                 if (YouTubeOptimizer.isYouTube(url)) {
                     evaluateJavascript(YouTubeOptimizer.YOUTUBE_APP_CSS, null)
@@ -550,5 +571,33 @@ class ComicWebView @JvmOverloads constructor(
             lastScrollDirectionChangeTime = now
             onScrollDirectionChanged?.invoke(false)
         }
+    }
+
+    override fun loadUrl(url: String) {
+        lastRequestedUrl = url
+        currentLoadedHost = runCatching { Uri.parse(url).host }.getOrNull()
+        super.loadUrl(url)
+    }
+
+    override fun loadUrl(url: String, additionalHttpHeaders: Map<String, String>) {
+        lastRequestedUrl = url
+        currentLoadedHost = runCatching { Uri.parse(url).host }.getOrNull()
+        super.loadUrl(url, additionalHttpHeaders)
+    }
+
+    fun isCurrentOrLoadingUrl(targetUrl: String): Boolean {
+        val normTarget = targetUrl.trim().trimEnd('/')
+        val normCurrent = this.url?.trim()?.trimEnd('/')
+        val normRequested = lastRequestedUrl?.trim()?.trimEnd('/')
+        return normTarget == normCurrent || normTarget == normRequested
+    }
+
+    override fun destroy() {
+        if (isDestroyed) return
+        isDestroyed = true
+        (parent as? android.view.ViewGroup)?.removeView(this)
+        stopLoading()
+        clearHistory()
+        super.destroy()
     }
 }

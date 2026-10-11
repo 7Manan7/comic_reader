@@ -12,6 +12,12 @@ object TabManager {
     private const val KEY_TABS = "open_tabs"
     private const val KEY_ACTIVE_TAB_ID = "active_tab_id"
     private const val MAX_TABS = 50
+    @Volatile
+    private var isFirstLaunch = true
+
+    fun resetFirstLaunchForTesting() {
+        isFirstLaunch = true
+    }
 
     fun getTabs(context: Context): List<Tab> {
         val prefs = getPrefs(context)
@@ -29,7 +35,7 @@ object TabManager {
         }
 
         return try {
-            raw.lines().mapNotNull { line ->
+            val parsedTabs = raw.lines().mapNotNull { line ->
                 val parts = line.split(";;")
                 if (parts.size >= 3) {
                     Tab(
@@ -40,7 +46,29 @@ object TabManager {
                         isIncognito = if (parts.size >= 5) parts[4].toBoolean() else false
                     )
                 } else null
-            }.ifEmpty {
+            }
+
+            // On cold start / fresh launch: purge any incognito tabs from previous session
+            val sanitized = if (isFirstLaunch) {
+                isFirstLaunch = false
+                val filtered = parsedTabs.filter { !it.isIncognito }
+                if (filtered.size != parsedTabs.size) {
+                    val defaultUrl = SessionManager.getInitialUrl(context)
+                    val toSave = filtered.ifEmpty {
+                        listOf(Tab(title = "Home", url = defaultUrl, lastAccessed = System.currentTimeMillis()))
+                    }
+                    val currentActive = prefs.getString(KEY_ACTIVE_TAB_ID, null)
+                    val nextActive = if (toSave.any { it.id == currentActive }) currentActive!! else toSave.first().id
+                    saveTabs(context, toSave, nextActive)
+                    toSave
+                } else {
+                    parsedTabs
+                }
+            } else {
+                parsedTabs
+            }
+
+            sanitized.ifEmpty {
                 val defaultUrl = SessionManager.getInitialUrl(context)
                 val defaultTab = Tab(
                     id = UUID.randomUUID().toString(),

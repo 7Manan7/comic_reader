@@ -517,19 +517,110 @@ fun ReaderScreen(
                         factory = { ctx ->
                             val existing = tabWebViews[activeTabId]
                             val targetTabId = activeTabId
+
+                            fun ComicWebView.bindCallbacks() {
+                                onShowCustomView = { view, callback ->
+                                    customVideoView = view
+                                    customVideoCallback = callback
+                                }
+                                onHideCustomView = {
+                                    customVideoView = null
+                                    customVideoCallback = null
+                                }
+                                onVideoPlaybackChanged = { isPlaying ->
+                                    if (activeTabId == targetTabId) {
+                                        isVideoPlaying = isPlaying
+                                    }
+                                }
+                                onProgressChanged = { progress ->
+                                    if (activeTabId == targetTabId) {
+                                        pageProgress = progress
+                                        canGoBack = canGoBack()
+                                        canGoForward = canGoForward()
+                                    }
+                                }
+                                onTitleReceived = { title ->
+                                    if (activeTabId == targetTabId) {
+                                        pageTitle = title
+                                        val urlForHistory = url ?: currentUrl
+                                        if (urlForHistory.startsWith("http") && title.isNotBlank() && !activeTab.isIncognito) {
+                                            historyList = HistoryManager.addHistoryEntry(context, title, urlForHistory)
+                                        }
+                                    }
+                                    tabs = TabManager.updateTab(context, targetTabId, title = title)
+                                }
+                                onUrlChanged = { newUrl ->
+                                    if (activeTabId == targetTabId) {
+                                        currentUrl = newUrl
+                                        inputUrl = newUrl
+                                        canGoBack = canGoBack()
+                                        canGoForward = canGoForward()
+                                        if (newUrl.startsWith("http") && !activeTab.isIncognito) {
+                                            val title = pageTitle.ifBlank { newUrl }
+                                            historyList = HistoryManager.addHistoryEntry(context, title, newUrl)
+                                            SessionManager.saveLastUrl(context, newUrl)
+                                        }
+                                    }
+                                    tabs = TabManager.updateTab(context, targetTabId, url = newUrl)
+                                }
+                                onNewTabRequested = { targetUrl ->
+                                    addNewTab(targetUrl, "New Tab", isIncognito = activeTab.isIncognito)
+                                }
+                                onSwipeBackToHome = {
+                                    val homeUrl = AppPreferences.DEFAULT_HOME_URL
+                                    currentUrl = homeUrl
+                                    inputUrl = ""
+                                    pageTitle = if (activeTab.isIncognito) "Private Tab" else "Home"
+                                    tabs = TabManager.updateTab(context, targetTabId, title = pageTitle, url = homeUrl)
+                                }
+                                onScrollDirectionChanged = { isScrollingDown ->
+                                    if (isScrollingDown) {
+                                        if (isHudVisible) {
+                                            isHudVisible = false
+                                        }
+                                        if (!isImmersiveFullscreen) {
+                                            onToggleFullscreen(true)
+                                        }
+                                    } else {
+                                        if (!isHudVisible) {
+                                            isHudVisible = true
+                                        }
+                                        if (!isImmersiveFullscreen) {
+                                            onToggleFullscreen(false)
+                                        }
+                                    }
+                                }
+                                onSingleTap = {
+                                    val showBrowser = !isHudVisible
+                                    isHudVisible = showBrowser
+                                    if (!isImmersiveFullscreen) {
+                                        onToggleFullscreen(!showBrowser)
+                                    }
+                                }
+                                onBlockedAdCountChanged = { count ->
+                                    if (activeTabId == targetTabId) {
+                                        blockedAdCount = count
+                                    }
+                                }
+                                onTouchFocus = {
+                                    if (isUrlInputFocused) {
+                                        focusManager.clearFocus()
+                                        isUrlInputFocused = false
+                                    }
+                                }
+                            }
+
                             val wv = if (existing != null) {
                                 (existing.parent as? ViewGroup)?.removeView(existing)
                                 existing.onResume()
                                 existing.resumeTimers()
-                                existing.onShowCustomView = { view, callback ->
-                                    customVideoView = view
-                                    customVideoCallback = callback
-                                }
-                                existing.onHideCustomView = {
-                                    customVideoView = null
-                                    customVideoCallback = null
-                                }
-                                if (existing.url != activeTab.url && activeTab.url.startsWith("http")) {
+                                existing.bindCallbacks()
+                                existing.setInvertMode(isNightInvertMode)
+                                existing.settings.textZoom = webTextZoom
+                                canGoBack = existing.canGoBack()
+                                canGoForward = existing.canGoForward()
+                                blockedAdCount = AdBlockEngine.getBlockedCount()
+                                if (!existing.isCurrentOrLoadingUrl(activeTab.url) && activeTab.url.startsWith("http")) {
                                     existing.loadUrl(activeTab.url)
                                 }
                                 existing
@@ -540,106 +631,12 @@ fun ReaderScreen(
                                         ViewGroup.LayoutParams.MATCH_PARENT
                                     )
                                     configureIncognito(activeTab.isIncognito)
-
-                                    onShowCustomView = { view, callback ->
-                                        customVideoView = view
-                                        customVideoCallback = callback
+                                    bindCallbacks()
+                                    setInvertMode(isNightInvertMode)
+                                    settings.textZoom = webTextZoom
+                                    if (!isCurrentOrLoadingUrl(activeTab.url) && activeTab.url.startsWith("http")) {
+                                        loadUrl(activeTab.url)
                                     }
-                                    onHideCustomView = {
-                                        customVideoView = null
-                                        customVideoCallback = null
-                                    }
-                                    onVideoPlaybackChanged = { isPlaying ->
-                                        if (activeTabId == targetTabId) {
-                                            isVideoPlaying = isPlaying
-                                        }
-                                    }
-
-                                    onProgressChanged = { progress ->
-                                        if (activeTabId == targetTabId) {
-                                            pageProgress = progress
-                                            canGoBack = canGoBack()
-                                            canGoForward = canGoForward()
-                                        }
-                                    }
-
-                                    onTitleReceived = { title ->
-                                        if (activeTabId == targetTabId) {
-                                            pageTitle = title
-                                            if (currentUrl.startsWith("http") && title.isNotBlank() && !activeTab.isIncognito) {
-                                                historyList = HistoryManager.addHistoryEntry(context, title, currentUrl)
-                                            }
-                                        }
-                                        tabs = TabManager.updateTab(context, targetTabId, title = title)
-                                    }
-
-                                    onUrlChanged = { newUrl ->
-                                        if (activeTabId == targetTabId) {
-                                            currentUrl = newUrl
-                                            inputUrl = newUrl
-                                            canGoBack = canGoBack()
-                                            canGoForward = canGoForward()
-                                            if (newUrl.startsWith("http") && !activeTab.isIncognito) {
-                                                val title = pageTitle.ifBlank { newUrl }
-                                                historyList = HistoryManager.addHistoryEntry(context, title, newUrl)
-                                                SessionManager.saveLastUrl(context, newUrl)
-                                            }
-                                        }
-                                        tabs = TabManager.updateTab(context, targetTabId, url = newUrl)
-                                    }
-
-                                    onNewTabRequested = { targetUrl ->
-                                        addNewTab(targetUrl, "New Tab", isIncognito = activeTab.isIncognito)
-                                    }
-
-                                    onSwipeBackToHome = {
-                                        val homeUrl = AppPreferences.DEFAULT_HOME_URL
-                                        currentUrl = homeUrl
-                                        inputUrl = ""
-                                        pageTitle = if (activeTab.isIncognito) "Private Tab" else "Home"
-                                        tabs = TabManager.updateTab(context, targetTabId, title = pageTitle, url = homeUrl)
-                                    }
-
-                                    onScrollDirectionChanged = { isScrollingDown ->
-                                        if (isScrollingDown) {
-                                            if (isHudVisible) {
-                                                isHudVisible = false
-                                            }
-                                            if (!isImmersiveFullscreen) {
-                                                onToggleFullscreen(true)
-                                            }
-                                        } else {
-                                            if (!isHudVisible) {
-                                                isHudVisible = true
-                                            }
-                                            if (!isImmersiveFullscreen) {
-                                                onToggleFullscreen(false)
-                                            }
-                                        }
-                                    }
-
-                                    onSingleTap = {
-                                        val showBrowser = !isHudVisible
-                                        isHudVisible = showBrowser
-                                        if (!isImmersiveFullscreen) {
-                                            onToggleFullscreen(!showBrowser)
-                                        }
-                                    }
-
-                                    onBlockedAdCountChanged = { count ->
-                                        if (activeTabId == targetTabId) {
-                                            blockedAdCount = count
-                                        }
-                                    }
-
-                                    onTouchFocus = {
-                                        if (isUrlInputFocused) {
-                                            focusManager.clearFocus()
-                                            isUrlInputFocused = false
-                                        }
-                                    }
-
-                                    loadUrl(activeTab.url)
                                     tabWebViews[targetTabId] = this
                                 }
                             }
@@ -651,7 +648,7 @@ fun ReaderScreen(
                             webViewRef = webView
                             webView.setInvertMode(isNightInvertMode)
                             webView.settings.textZoom = webTextZoom
-                            if (webView.url != activeTab.url && activeTab.url.startsWith("http")) {
+                            if (!webView.isCurrentOrLoadingUrl(activeTab.url) && activeTab.url.startsWith("http")) {
                                 webView.loadUrl(activeTab.url)
                             }
                         }
@@ -778,7 +775,11 @@ fun ReaderScreen(
             )
         ) {
             AndroidView(
-                factory = { customVideoView!! },
+                factory = {
+                    val view = customVideoView!!
+                    (view.parent as? ViewGroup)?.removeView(view)
+                    view
+                },
                 modifier = Modifier
                     .fillMaxSize()
                     .background(Color.Black)
@@ -1092,7 +1093,7 @@ fun ReaderScreen(
                                                 fontSize = 14.sp
                                             )
                                             Text(
-                                                text = "${adBlockListsStatus.activeListCount}/16 lists active • ${adBlockListsStatus.totalRuleCount} rules",
+                                                text = "${adBlockListsStatus.activeListCount}/${AdBlockListManager.ALL_LISTS.size} lists active • ${adBlockListsStatus.totalRuleCount} rules",
                                                 fontSize = 11.sp,
                                                 color = Color(0xFF81C784)
                                             )

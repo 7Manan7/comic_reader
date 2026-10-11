@@ -94,8 +94,8 @@ object EasyListParser {
             if (line.startsWith("127.0.0.1") || line.startsWith("0.0.0.0")) {
                 val tokens = line.split(Regex("\\s+"))
                 if (tokens.size >= 2) {
-                    val domain = tokens[1].trim().lowercase(Locale.ROOT)
-                    if (domain.isNotEmpty() && domain != "localhost" && domain != "broadcasthost" && isValidDomain(domain)) {
+                    val domain = tokens[1].substringBefore('#').trim().lowercase(Locale.ROOT)
+                    if (domain.isNotEmpty() && domain != "localhost" && domain != "broadcasthost" && domain != "0.0.0.0" && isValidDomain(domain)) {
                         blockedDomains.add(domain)
                     }
                 }
@@ -151,10 +151,10 @@ object EasyListParser {
                     } else {
                         // It has an explicit path on this domain: e.g. ||example.com/ads/*
                         val pathPart = extractPathFromAnchor(ruleContent)
-                        if (pathPart.length >= 4 && isSafeAdPattern(pathPart)) {
-                            pathPatterns.add(pathPart)
-                        } else {
+                        if (pathPart.isEmpty() || pathPart == "/") {
                             blockedDomains.add(domain)
+                        } else if (pathPart.length >= 4 && isSafeAdPattern(pathPart)) {
+                            pathPatterns.add(pathPart)
                         }
                     }
                 }
@@ -228,7 +228,7 @@ object EasyListParser {
         if (dollarIndex != -1) {
             pattern = pattern.substring(0, dollarIndex)
         }
-        return pattern.trim().replace("^", "").replace("*", "").lowercase(Locale.ROOT)
+        return pattern.trim().removePrefix("|").removeSuffix("|").replace("^", "").replace("*", "").lowercase(Locale.ROOT)
     }
 
     private val adTokenRegex = Regex("""(^|[/_.\-?&=])ads?([/_.\-?&=]|$)""")

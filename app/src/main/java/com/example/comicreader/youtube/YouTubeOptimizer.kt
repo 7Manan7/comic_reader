@@ -122,7 +122,11 @@ object YouTubeOptimizer {
                             skipBtn.click();
                         } else if (!isNaN(video.duration) && video.duration > 0 && video.currentTime < video.duration - 0.2) {
                             // Fast-forward unskippable ad video instantly
-                            video.__kuroWasAdSpeeding = true;
+                            if (!video.__kuroWasAdSpeeding) {
+                                video.__kuroOrigRate = video.playbackRate || 1.0;
+                                video.__kuroOrigMuted = video.muted;
+                                video.__kuroWasAdSpeeding = true;
+                            }
                             video.playbackRate = 16.0;
                             video.muted = true;
                             video.currentTime = video.duration - 0.1;
@@ -130,8 +134,8 @@ object YouTubeOptimizer {
                     } else if (video && video.__kuroWasAdSpeeding) {
                         // Restore normal playback speed and sound once ad concludes
                         video.__kuroWasAdSpeeding = false;
-                        video.playbackRate = 1.0;
-                        video.muted = false;
+                        video.playbackRate = video.__kuroOrigRate || 1.0;
+                        video.muted = (video.__kuroOrigMuted !== undefined) ? video.__kuroOrigMuted : false;
                     }
                 } catch(e) {}
             }
@@ -236,6 +240,16 @@ object YouTubeOptimizer {
                     });
                 }
             }
+            window.addEventListener('beforeunload', function() {
+                if (window.KuroBridge && window.KuroBridge.onVideoPlaybackStateChanged) {
+                    window.KuroBridge.onVideoPlaybackStateChanged(false);
+                }
+            });
+            window.addEventListener('pagehide', function() {
+                if (window.KuroBridge && window.KuroBridge.onVideoPlaybackStateChanged) {
+                    window.KuroBridge.onVideoPlaybackStateChanged(false);
+                }
+            });
             setInterval(hookVideoState, 1000);
         })();
     """

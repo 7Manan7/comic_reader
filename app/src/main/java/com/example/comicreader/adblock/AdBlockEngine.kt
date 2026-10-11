@@ -295,7 +295,11 @@ object AdBlockEngine {
         if (currentHost.isNullOrBlank()) return false
         val h = host.lowercase(Locale.ROOT).removePrefix("www.")
         val c = currentHost.lowercase(Locale.ROOT).removePrefix("www.")
-        return h == c || h.endsWith(".$c") || c.endsWith(".$h")
+        if (h == c) return true
+        if (h.contains('.') && c.contains('.')) {
+            return h.endsWith(".$c") || c.endsWith(".$h")
+        }
+        return false
     }
 
     /**
@@ -377,6 +381,13 @@ object AdBlockEngine {
      */
     fun resetCounter() {
         blockedAdsCounter.set(0)
+    }
+
+    /**
+     * Increments and returns the blocked ads counter.
+     */
+    fun incrementBlockedCount(): Int {
+        return blockedAdsCounter.incrementAndGet()
     }
 
     /**
@@ -494,12 +505,15 @@ object AdBlockEngine {
                 }
             `;
             var style = document.getElementById('comic-reader-adblock-css');
-            if (!style) {
+            var target = document.head || document.documentElement;
+            if (!style && target) {
                 style = document.createElement('style');
                 style.id = 'comic-reader-adblock-css';
                 style.type = 'text/css';
-                style.innerHTML = css;
-                (document.head || document.documentElement).appendChild(style);
+                target.appendChild(style);
+            }
+            if (style) {
+                style.textContent = css;
             }
         })();
         """
@@ -566,7 +580,7 @@ object AdBlockEngine {
                 return;
             }
 
-            // Neutralize window.open: return dummy window object to satisfy ad scripts without opening popups
+            // Neutralize empty/rogue window.open while letting genuine user navigations through
             var dummyWin = {
                 closed: true,
                 focus: function() {},
@@ -578,9 +592,16 @@ object AdBlockEngine {
             };
             
             try {
+                var origOpen = window.open;
                 window.open = function(url, target, features) {
-                    console.log('[ComicReader AdBlock] Blocked window.open:', url);
-                    return dummyWin;
+                    if (!url || url === 'about:blank') {
+                        return dummyWin;
+                    }
+                    try {
+                        return origOpen.call(window, url, target, features);
+                    } catch(e) {
+                        return dummyWin;
+                    }
                 };
             } catch(e) {}
 
@@ -606,11 +627,23 @@ object AdBlockEngine {
             // Remove transparent / fullscreen clickjack overlay divs that trigger popunders
             function sweepClickTraps() {
                 try {
-                    var els = document.querySelectorAll('div, a, span, iframe');
-                    for (var i = 0; i < els.length; i++) {
-                        var el = els[i];
+                    var candidates = document.querySelectorAll('body > div, body > a, body > span, body > iframe');
+                    for (var i = 0; i < candidates.length; i++) {
+                        var el = candidates[i];
                         // Protect genuine video and media player elements
                         if (el.tagName === 'VIDEO' || el.querySelector('video, iframe[src*="youtube"], iframe[src*="youtu.be"]')) {
+                            continue;
+                        }
+                        // Exempt legitimate dialogs, navigation menus, and content modals
+                        if (el.getAttribute('role') === 'dialog' || el.getAttribute('role') === 'alertdialog' || el.tagName === 'DIALOG') {
+                            continue;
+                        }
+                        var className = (el.className && typeof el.className === 'string') ? el.className.toLowerCase() : '';
+                        if (className.indexOf('modal') !== -1 || className.indexOf('drawer') !== -1 || className.indexOf('menu') !== -1 || className.indexOf('nav') !== -1) {
+                            continue;
+                        }
+                        // If element contains interactive elements or substantial text, do not touch
+                        if (el.querySelector('button, input, select, textarea, form, h1, h2, h3, h4, p') || (el.innerText && el.innerText.trim().length > 30)) {
                             continue;
                         }
                         var style = window.getComputedStyle(el);
@@ -619,7 +652,12 @@ object AdBlockEngine {
                             if (z >= 999) {
                                 var rect = el.getBoundingClientRect();
                                 if (rect.width >= window.innerWidth * 0.7 && rect.height >= window.innerHeight * 0.7) {
-                                    el.remove();
+                                    var opacity = parseFloat(style.opacity);
+                                    var bg = style.backgroundColor;
+                                    var isTransparentBg = !bg || bg === 'transparent' || bg.indexOf('rgba(0, 0, 0, 0)') !== -1 || bg.indexOf('rgba(255, 255, 255, 0)') !== -1;
+                                    if (opacity < 0.1 || isTransparentBg) {
+                                        el.remove();
+                                    }
                                 }
                             }
                         }
