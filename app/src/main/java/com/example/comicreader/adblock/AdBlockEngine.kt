@@ -149,27 +149,45 @@ object AdBlockEngine {
         "/prebid"
     )
 
-    // Active working sets (Core + Loaded Filter Lists)
-    @Volatile
-    private var activeBlockedDomains: Set<String> = coreBlockedDomains
+    /**
+     * Immutable snapshot of all active blocking, exception, pattern, and cosmetic rules.
+     * Swapped atomically to ensure lock-free, zero-contention reads from Chromium threads.
+     */
+    data class CompiledAdBlockRules(
+        val blockedDomains: Set<String> = emptySet(),
+        val exceptionDomains: Set<String> = emptySet(),
+        val pathPatterns: List<String> = emptyList(),
+        val exceptionPatterns: List<String> = emptyList(),
+        val cosmeticSelectors: List<String> = emptyList(),
+        val domainCosmeticSelectors: Map<String, List<String>> = emptyMap()
+    )
 
-    @Volatile
-    private var activeExceptionDomains: Set<String> = emptySet()
+    // Active compiled snapshot held in an AtomicReference
+    private val activeRulesRef = java.util.concurrent.atomic.AtomicReference(
+        CompiledAdBlockRules(
+            blockedDomains = coreBlockedDomains,
+            pathPatterns = coreBlockedPathPatterns
+        )
+    )
 
-    @Volatile
-    private var activePathPatterns: List<String> = coreBlockedPathPatterns
-
-    @Volatile
-    private var activeExceptionPatterns: List<String> = emptyList()
-
-    @Volatile
-    private var activeCosmeticSelectors: List<String> = emptyList()
-
-    @Volatile
-    private var activeDomainCosmeticSelectors: Map<String, List<String>> = emptyMap()
+    // In-memory thread-safe LRU decision cache (O(1) lookups for repetitive chapter image CDN requests)
+    private val decisionCache: MutableMap<String, Boolean> = java.util.Collections.synchronizedMap(
+        object : LinkedHashMap<String, Boolean>(512, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Boolean>?): Boolean {
+                return size > 2048
+            }
+        }
+    )
 
     // User-whitelisted domains (thread-safe + persisted)
     private val whitelistedDomains: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
+    /**
+     * Clears decision cache when rules or whitelist changes.
+     */
+    fun clearDecisionCache() {
+        decisionCache.clear()
+    }
 
     /**
      * Loads rules parsed from all active filter lists into memory.
@@ -186,17 +204,22 @@ object AdBlockEngine {
             addAll(rules.pathPatterns)
         }
 
-        activeBlockedDomains = mergedBlocked
-        activeExceptionDomains = rules.exceptionDomains
-        activePathPatterns = mergedPaths
-        activeExceptionPatterns = rules.exceptionPatterns
-        activeCosmeticSelectors = rules.cosmeticSelectors
-        activeDomainCosmeticSelectors = rules.domainCosmeticSelectors
+        val newCompiled = CompiledAdBlockRules(
+            blockedDomains = mergedBlocked,
+            exceptionDomains = rules.exceptionDomains,
+            pathPatterns = mergedPaths,
+            exceptionPatterns = rules.exceptionPatterns,
+            cosmeticSelectors = rules.cosmeticSelectors,
+            domainCosmeticSelectors = rules.domainCosmeticSelectors
+        )
+
+        activeRulesRef.set(newCompiled)
+        clearDecisionCache()
 
         runCatching {
-            Log.i(TAG, "AdBlockEngine loaded: ${activeBlockedDomains.size} blocked domains, " +
-                    "${activeExceptionDomains.size} exception domains, ${activePathPatterns.size} patterns, " +
-                    "${activeCosmeticSelectors.size} cosmetic selectors.")
+            Log.i(TAG, "AdBlockEngine loaded atomically: ${newCompiled.blockedDomains.size} blocked domains, " +
+                    "${newCompiled.exceptionDomains.size} exception domains, ${newCompiled.pathPatterns.size} patterns, " +
+                    "${newCompiled.cosmeticSelectors.size} cosmetic selectors.")
         }
     }
 
@@ -204,7 +227,8 @@ object AdBlockEngine {
      * Total number of unique rules loaded in the engine.
      */
     fun getLoadedRuleCount(): Int {
-        return activeBlockedDomains.size + activeExceptionDomains.size + activePathPatterns.size + activeCosmeticSelectors.size
+        val rules = activeRulesRef.get()
+        return rules.blockedDomains.size + rules.exceptionDomains.size + rules.pathPatterns.size + rules.cosmeticSelectors.size
     }
 
     /**
@@ -246,23 +270,38 @@ object AdBlockEngine {
             return false
         }
 
+        // Check decision cache for O(1) response
+        val cacheKey = "$lowerUrl|${currentHost.orEmpty()}"
+        decisionCache[cacheKey]?.let { cachedIsAd ->
+            if (cachedIsAd) {
+                blockedAdsCounter.incrementAndGet()
+            }
+            return cachedIsAd
+        }
+
+        // Read immutable snapshot reference
+        val rules = activeRulesRef.get()
+
         // Check exception domains (Adblock @@ rules have precedence)
-        if (isException(host, lowerUrl)) {
+        if (isException(host, lowerUrl, rules)) {
+            decisionCache[cacheKey] = false
             return false
         }
 
         // Domain matching via fast suffix lookups
-        if (matchesDomainSuffix(host, activeBlockedDomains)) {
+        if (matchesDomainSuffix(host, rules.blockedDomains)) {
             // Safeguard: do not block the active comic website domain itself or its asset subdomains
             if (isSameFirstPartyHost(host, currentHost)) {
+                decisionCache[cacheKey] = false
                 return false
             }
+            decisionCache[cacheKey] = true
             blockedAdsCounter.incrementAndGet()
             return true
         }
 
         // Path pattern matching (strictly for non-first-party or known ad endpoints)
-        for (pattern in activePathPatterns) {
+        for (pattern in rules.pathPatterns) {
             if (lowerUrl.contains(pattern)) {
                 if (isSameFirstPartyHost(host, currentHost)) {
                     // Even if on same domain, only block if explicitly in core ad paths
@@ -270,11 +309,13 @@ object AdBlockEngine {
                         continue
                     }
                 }
+                decisionCache[cacheKey] = true
                 blockedAdsCounter.incrementAndGet()
                 return true
             }
         }
 
+        decisionCache[cacheKey] = false
         return false
     }
 
@@ -313,11 +354,11 @@ object AdBlockEngine {
                 url.startsWith("alipayqr:")
     }
 
-    private fun isException(host: String, fullUrl: String): Boolean {
-        if (activeExceptionDomains.isNotEmpty() && matchesDomainSuffix(host, activeExceptionDomains)) {
+    private fun isException(host: String, fullUrl: String, rules: CompiledAdBlockRules): Boolean {
+        if (rules.exceptionDomains.isNotEmpty() && matchesDomainSuffix(host, rules.exceptionDomains)) {
             return true
         }
-        for (pattern in activeExceptionPatterns) {
+        for (pattern in rules.exceptionPatterns) {
             if (fullUrl.contains(pattern)) {
                 return true
             }
@@ -407,6 +448,7 @@ object AdBlockEngine {
     fun loadSettings(context: android.content.Context) {
         loadWhitelist(context)
         isEnabled = com.example.comicreader.data.AppPreferences.isAdBlockEnabled(context)
+        clearDecisionCache()
     }
 
     /**
@@ -417,6 +459,7 @@ object AdBlockEngine {
         val raw = prefs.getStringSet("domains", emptySet()) ?: emptySet()
         whitelistedDomains.clear()
         whitelistedDomains.addAll(raw)
+        clearDecisionCache()
     }
 
     /**
@@ -425,6 +468,7 @@ object AdBlockEngine {
     private fun saveWhitelist(context: android.content.Context) {
         val prefs = context.getSharedPreferences("adblock_whitelist", android.content.Context.MODE_PRIVATE)
         prefs.edit().putStringSet("domains", whitelistedDomains.toSet()).apply()
+        clearDecisionCache()
     }
 
     /**
@@ -432,6 +476,7 @@ object AdBlockEngine {
      */
     fun addToWhitelist(domain: String, context: android.content.Context? = null) {
         whitelistedDomains.add(domain.lowercase(Locale.ROOT))
+        clearDecisionCache()
         context?.let { saveWhitelist(it) }
     }
 
@@ -440,6 +485,7 @@ object AdBlockEngine {
      */
     fun removeFromWhitelist(domain: String, context: android.content.Context? = null) {
         whitelistedDomains.remove(domain.lowercase(Locale.ROOT))
+        clearDecisionCache()
         context?.let { saveWhitelist(it) }
     }
 
@@ -447,14 +493,15 @@ object AdBlockEngine {
      * Builds dynamic cosmetic CSS combining standard selectors and EasyList selectors.
      */
     fun getCosmeticCss(host: String = ""): String {
+        val rules = activeRulesRef.get()
         val extraSelectors = StringBuilder()
         // Add parsed EasyList cosmetic rules (capped to prevent huge script injection)
-        val sampleSelectors = activeCosmeticSelectors.take(150)
+        val sampleSelectors = rules.cosmeticSelectors.take(150)
         for (sel in sampleSelectors) {
             extraSelectors.append(sel).append(",\n")
         }
         if (host.isNotEmpty()) {
-            activeDomainCosmeticSelectors[host.lowercase(Locale.ROOT)]?.forEach { sel ->
+            rules.domainCosmeticSelectors[host.lowercase(Locale.ROOT)]?.forEach { sel ->
                 extraSelectors.append(sel).append(",\n")
             }
         }

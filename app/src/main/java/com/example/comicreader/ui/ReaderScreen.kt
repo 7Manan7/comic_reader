@@ -18,9 +18,20 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
+import java.util.Locale
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -177,7 +188,15 @@ fun ReaderScreen(
     var webViewRef by remember { mutableStateOf<ComicWebView?>(null) }
     var isVideoPlaying by remember { mutableStateOf(false) }
 
-    // Multi-tab WebViews cache (keeps background tabs in memory for instant switching without losing reading progress)
+    // Reading Engine live HUD state
+    var readingScrollProgress by remember { mutableFloatStateOf(activeTab.scrollProgress) }
+    var detectedChapterLabel by remember { mutableStateOf(activeTab.detectedChapter.orEmpty()) }
+    var prevChapterUrl by remember { mutableStateOf("") }
+    var nextChapterUrl by remember { mutableStateOf("") }
+    var isAutoScrolling by remember { mutableStateOf(false) }
+    var showSpeedSlider by remember { mutableStateOf(false) }
+
+    // Multi-tab WebViews cache (managed via WebViewPoolManager LRU hibernation)
     val tabWebViews = remember { mutableMapOf<String, ComicWebView>() }
 
     fun navigateToUrl(destination: String, title: String = "") {
@@ -199,8 +218,14 @@ fun ReaderScreen(
             isVideoPlaying = false
             activeTabId = tabId
             TabManager.setActiveTabId(context, tabId)
+            WebViewPoolManager.recordAccess(tabId)
             val target = tabs.find { it.id == tabId }
             if (target != null) {
+                readingScrollProgress = target.scrollProgress
+                detectedChapterLabel = target.detectedChapter.orEmpty()
+                prevChapterUrl = ""
+                nextChapterUrl = ""
+                isAutoScrolling = false
                 val targetWebView = tabWebViews[tabId]
                 if (targetWebView != null) {
                     val liveUrl = targetWebView.url
@@ -250,6 +275,7 @@ fun ReaderScreen(
             wv.destroy()
             tabWebViews.remove(tabId)
         }
+        WebViewPoolManager.onTabClosed(tabId)
         val (updatedTabs, newActiveId) = TabManager.closeTab(context, tabId)
         tabs = updatedTabs
         if (activeTabId == tabId) {
@@ -284,6 +310,7 @@ fun ReaderScreen(
             wv.destroy()
         }
         tabWebViews.clear()
+        WebViewPoolManager.clearAll()
         val (updatedTabs, newActiveId) = TabManager.closeAllTabs(context)
         tabs = updatedTabs
         activeTabId = newActiveId
@@ -306,6 +333,7 @@ fun ReaderScreen(
                 wv.destroy()
                 tabWebViews.remove(tab.id)
             }
+            WebViewPoolManager.onTabClosed(tab.id)
         }
         val (updatedTabs, newActiveId) = TabManager.closeAllIncognitoTabs(context)
         tabs = updatedTabs
@@ -338,10 +366,17 @@ fun ReaderScreen(
     // Settings state (Persisted across restarts via AppPreferences)
     var isImmersiveFullscreen by remember { mutableStateOf(AppPreferences.isImmersiveFullscreen(context)) }
     var isNightInvertMode by remember { mutableStateOf(AppPreferences.isNightInvertMode(context)) }
+    var activeColorProfile by remember { mutableStateOf(AppPreferences.getReadingColorProfile(context)) }
+    var isWebtoonSeamlessMode by remember { mutableStateOf(AppPreferences.isWebtoonSeamlessMode(context)) }
+    var autoScrollSpeed by remember { mutableFloatStateOf(AppPreferences.getAutoScrollSpeed(context)) }
     var isKeepScreenOn by remember { mutableStateOf(AppPreferences.isKeepScreenOn(context)) }
     var isVolumeScrollEnabled by remember { mutableStateOf(AppPreferences.isVolumeScrollEnabled(context)) }
     var webTextZoom by remember { mutableIntStateOf(AppPreferences.getWebTextZoom(context)) }
     var isUrlInputFocused by remember { mutableStateOf(false) }
+
+    // Hibernation state from WebViewPoolManager
+    val hibernatedTabIds by WebViewPoolManager.hibernatedTabIds.collectAsState()
+    val activeWebViewCount by WebViewPoolManager.activeWebViewCount.collectAsState()
 
     // Refresh rate state
     val activeRefreshRate by RefreshRateManager.currentRefreshRate.collectAsState()
@@ -640,6 +675,30 @@ fun ReaderScreen(
                                         blockedAdCount = count
                                     }
                                 }
+                                onScrollProgress = { progress ->
+                                    if (activeTabId == targetTabId) {
+                                        readingScrollProgress = progress
+                                        tabs = TabManager.updateTabScrollProgress(context, targetTabId, progress, detectedChapterLabel)
+                                        if (!activeTab.isIncognito) {
+                                            HistoryManager.updateProgress(context, currentUrl, progress, detectedChapterLabel)
+                                        }
+                                    }
+                                }
+                                onChapterNavigation = { label, prevUrl, nextUrl ->
+                                    if (activeTabId == targetTabId) {
+                                        if (label.isNotBlank()) {
+                                            detectedChapterLabel = label
+                                            tabs = TabManager.updateTabScrollProgress(context, targetTabId, readingScrollProgress, label)
+                                        }
+                                        prevChapterUrl = prevUrl
+                                        nextChapterUrl = nextUrl
+                                    }
+                                }
+                                onAutoScrollStatusChanged = { active ->
+                                    if (activeTabId == targetTabId) {
+                                        isAutoScrolling = active
+                                    }
+                                }
                                 onTouchFocus = {
                                     if (isUrlInputFocused) {
                                         focusManager.clearFocus()
@@ -653,7 +712,8 @@ fun ReaderScreen(
                                 existing.onResume()
                                 existing.resumeTimers()
                                 existing.bindCallbacks()
-                                existing.setInvertMode(isNightInvertMode)
+                                existing.setColorProfile(activeColorProfile)
+                                existing.isWebtoonSeamlessMode = isWebtoonSeamlessMode
                                 existing.settings.textZoom = webTextZoom
                                 canGoBack = existing.canGoBack()
                                 canGoForward = existing.canGoForward()
@@ -663,6 +723,8 @@ fun ReaderScreen(
                                 }
                                 existing
                             } else {
+                                val hibernated = WebViewPoolManager.consumeHibernatedState(targetTabId)
+                                val seamless = isWebtoonSeamlessMode
                                 ComicWebView(ctx).apply {
                                     layoutParams = ViewGroup.LayoutParams(
                                         ViewGroup.LayoutParams.MATCH_PARENT,
@@ -670,12 +732,24 @@ fun ReaderScreen(
                                     )
                                     configureIncognito(activeTab.isIncognito)
                                     bindCallbacks()
-                                    setInvertMode(isNightInvertMode)
+                                    this.isWebtoonSeamlessMode = seamless
+                                    setColorProfile(activeColorProfile)
                                     settings.textZoom = webTextZoom
-                                    if (activeTab.url.startsWith("http")) {
+                                    if (hibernated?.webViewBundle != null) {
+                                        restoreState(hibernated.webViewBundle)
+                                        setPendingScrollRatio(hibernated.scrollPercentage)
+                                    } else if (activeTab.url.startsWith("http")) {
+                                        setPendingScrollRatio(activeTab.scrollProgress)
                                         loadUrl(activeTab.url)
                                     }
                                     tabWebViews[targetTabId] = this
+                                    WebViewPoolManager.recordAccess(targetTabId)
+                                    WebViewPoolManager.enforcePoolLimit(
+                                        activeTabId = targetTabId,
+                                        videoPlayingTabId = if (isVideoPlaying) activeTabId else null,
+                                        liveWebViews = tabWebViews,
+                                        tabTitles = tabs.associate { it.id to it.title }
+                                    )
                                 }
                             }
                             webViewRef = wv
@@ -684,7 +758,8 @@ fun ReaderScreen(
                         },
                         update = { webView ->
                             webViewRef = webView
-                            webView.setInvertMode(isNightInvertMode)
+                            webView.setColorProfile(activeColorProfile)
+                            webView.isWebtoonSeamlessMode = isWebtoonSeamlessMode
                             webView.settings.textZoom = webTextZoom
                         }
                     )
@@ -701,6 +776,191 @@ fun ReaderScreen(
                         trackColor = Color.Transparent
                     )
                 }
+
+                // Top Edge Reading Progress Bar (Ultra-thin 2.5dp neon gradient when HUD collapsed)
+                if (!isHudVisible && readingScrollProgress > 0f) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(2.5.dp)
+                            .align(Alignment.TopCenter)
+                            .background(Color.Transparent)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(readingScrollProgress.coerceIn(0f, 1f))
+                                .fillMaxHeight()
+                                .background(
+                                    Brush.horizontalGradient(
+                                        listOf(Color(0xFF00E5FF), Color(0xFF3B82F6), Color(0xFFA855F7))
+                                    )
+                                )
+                        )
+                    }
+                }
+
+                // Floating Quick-Action Reader Pill (visible when HUD is shown during web reading)
+                if (isHudVisible) {
+                    Surface(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 12.dp)
+                            .clip(RoundedCornerShape(22.dp)),
+                        color = Color(0xF2161A26),
+                        border = BorderStroke(1.dp, Color(0xFF2C354E)),
+                        shadowElevation = 12.dp
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                // Prev Chapter Button
+                                Surface(
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = if (prevChapterUrl.isNotBlank()) Color(0xFF232B40) else Color(0xFF1B202D),
+                                    border = BorderStroke(0.5.dp, if (prevChapterUrl.isNotBlank()) Color(0xFF3B82F6) else Color.Transparent),
+                                    modifier = Modifier.clickable(enabled = prevChapterUrl.isNotBlank()) {
+                                        navigateToUrl(prevChapterUrl)
+                                    }
+                                ) {
+                                    Text(
+                                        text = "⏮ Prev",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (prevChapterUrl.isNotBlank()) Color(0xFF93C5FD) else Color(0xFF475569),
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                                    )
+                                }
+
+                                // Auto-Scroll Toggle (Cruise Mode)
+                                Surface(
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = if (isAutoScrolling) Color(0xFF166534) else Color(0xFF232B40),
+                                    border = BorderStroke(0.5.dp, if (isAutoScrolling) Color(0xFF4ADE80) else Color(0xFF38BDF8)),
+                                    modifier = Modifier.clickable {
+                                        if (isAutoScrolling) {
+                                            webViewRef?.stopAutoScroll()
+                                        } else {
+                                            webViewRef?.startAutoScroll(autoScrollSpeed)
+                                        }
+                                    }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = if (isAutoScrolling) "⏸ Cruise" else "▶ Cruise",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (isAutoScrolling) Color(0xFFDCFCE7) else Color(0xFFE0F2FE)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = "${String.format(Locale.US, "%.1f", autoScrollSpeed)}x",
+                                            fontSize = 10.sp,
+                                            color = Color(0xFF94A3B8),
+                                            modifier = Modifier.clickable { showSpeedSlider = !showSpeedSlider }
+                                        )
+                                    }
+                                }
+
+                                // Chapter Badge / Scroll Percentage (Tap to scroll top or bottom)
+                                val scrollPct = (readingScrollProgress * 100).toInt().coerceIn(0, 100)
+                                val chText = if (detectedChapterLabel.isNotBlank()) "$detectedChapterLabel • $scrollPct%" else "$scrollPct%"
+                                Surface(
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = Color(0xFF2E1A47),
+                                    border = BorderStroke(0.5.dp, Color(0xFFA855F7)),
+                                    modifier = Modifier.clickable {
+                                        val wv = webViewRef
+                                        if (wv != null) {
+                                            if (readingScrollProgress > 0.5f) {
+                                                wv.scrollTo(0, 0)
+                                            } else {
+                                                wv.scrollToBottom()
+                                            }
+                                        }
+                                    }
+                                ) {
+                                    Text(
+                                        text = chText,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFFE9D5FF),
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                                    )
+                                }
+
+                                // Next Chapter Button (highlighted accent when > 92% read)
+                                val isNearEnd = readingScrollProgress >= 0.92f
+                                Surface(
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = if (nextChapterUrl.isNotBlank()) {
+                                        if (isNearEnd) Color(0xFF1E3A8A) else Color(0xFF232B40)
+                                    } else Color(0xFF1B202D),
+                                    border = BorderStroke(
+                                        width = if (isNearEnd && nextChapterUrl.isNotBlank()) 1.5.dp else 0.5.dp,
+                                        color = if (nextChapterUrl.isNotBlank()) {
+                                            if (isNearEnd) Color(0xFF60A5FA) else Color(0xFF3B82F6)
+                                        } else Color.Transparent
+                                    ),
+                                    modifier = Modifier.clickable(enabled = nextChapterUrl.isNotBlank()) {
+                                        navigateToUrl(nextChapterUrl)
+                                    }
+                                ) {
+                                    Text(
+                                        text = "Next ⏭",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (nextChapterUrl.isNotBlank()) {
+                                            if (isNearEnd) Color(0xFFBFDBFE) else Color(0xFF93C5FD)
+                                        } else Color(0xFF475569),
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                                    )
+                                }
+                            }
+
+                            // Inline Cruise Speed Slider
+                            if (showSpeedSlider) {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.padding(horizontal = 4.dp)
+                                ) {
+                                    Text("Speed", fontSize = 10.sp, color = Color(0xFF94A3B8))
+                                    Slider(
+                                        value = autoScrollSpeed,
+                                        onValueChange = { newSpeed ->
+                                            autoScrollSpeed = newSpeed
+                                            AppPreferences.setAutoScrollSpeed(context, newSpeed)
+                                            webViewRef?.setAutoScrollSpeed(newSpeed)
+                                        },
+                                        valueRange = 0.5f..5.0f,
+                                        steps = 8,
+                                        colors = SliderDefaults.colors(
+                                            thumbColor = Color(0xFF38BDF8),
+                                            activeTrackColor = Color(0xFF0284C7),
+                                            inactiveTrackColor = Color(0xFF334155)
+                                        ),
+                                        modifier = Modifier.width(130.dp)
+                                    )
+                                    Text(
+                                        text = "${String.format(Locale.US, "%.1f", autoScrollSpeed)}x",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -710,11 +970,40 @@ fun ReaderScreen(
             enter = expandVertically() + fadeIn(),
             exit = shrinkVertically() + fadeOut()
         ) {
+            val haptic = LocalHapticFeedback.current
+            var bottomBarDragOffset by remember { mutableFloatStateOf(0f) }
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(if (activeTab.isIncognito) Color(0xE6140D1E) else Color(0xE61E1E24))
                     .then(if (!isImmersiveFullscreen) Modifier.navigationBarsPadding() else Modifier)
+                    .pointerInput(tabs, activeTabId) {
+                        detectHorizontalDragGestures(
+                            onDragStart = { bottomBarDragOffset = 0f },
+                            onDragEnd = {
+                                val currentIndex = tabs.indexOfFirst { it.id == activeTabId }
+                                if (currentIndex != -1 && tabs.size > 1) {
+                                    if (bottomBarDragOffset > 80f) {
+                                        // Swiped right -> Previous tab
+                                        val prevIndex = if (currentIndex > 0) currentIndex - 1 else tabs.size - 1
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        selectTab(tabs[prevIndex].id)
+                                    } else if (bottomBarDragOffset < -80f) {
+                                        // Swiped left -> Next tab
+                                        val nextIndex = if (currentIndex < tabs.size - 1) currentIndex + 1 else 0
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        selectTab(tabs[nextIndex].id)
+                                    }
+                                }
+                                bottomBarDragOffset = 0f
+                            },
+                            onDragCancel = { bottomBarDragOffset = 0f },
+                            onHorizontalDrag = { change, dragAmount ->
+                                change.consume()
+                                bottomBarDragOffset += dragAmount
+                            }
+                        )
+                    }
                     .padding(horizontal = 12.dp, vertical = 6.dp)
             ) {
                 // Bottom Navigation Bar (Back, Forward, Home, Tabs, Menu)
@@ -1307,21 +1596,64 @@ fun ReaderScreen(
                                         )
                                     }
 
-                                    // Night OLED Invert
+                                    // Reading Color Profiles (Original, OLED Dark, Warm Amber, E-Ink)
+                                    Column(modifier = Modifier.fillMaxWidth()) {
+                                        Text("🎨 Reading Color Profile", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                        Text("Eye-comfort tuning for manga & webtoons", fontSize = 11.sp, color = Color.Gray)
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            ReadingColorProfile.entries.forEach { profile ->
+                                                val isSelected = profile == activeColorProfile
+                                                Box(
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .clip(RoundedCornerShape(10.dp))
+                                                        .background(if (isSelected) Color(0xFF2563EB) else Color(0xFF282B3B))
+                                                        .clickable {
+                                                            activeColorProfile = profile
+                                                            isNightInvertMode = (profile == ReadingColorProfile.OLED_INVERT)
+                                                            AppPreferences.setReadingColorProfile(context, profile)
+                                                            webViewRef?.setColorProfile(profile)
+                                                        }
+                                                        .padding(vertical = 8.dp),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                                        Text(profile.iconEmoji, fontSize = 14.sp)
+                                                        Spacer(modifier = Modifier.height(2.dp))
+                                                        Text(
+                                                            text = profile.displayName.substringBefore(" "),
+                                                            fontSize = 10.sp,
+                                                            color = if (isSelected) Color.White else Color.LightGray,
+                                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(8.dp))
+
+                                    // Seamless Webtoon Mode & Lazy Load Booster
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                                            Text("🌙 OLED Dark / Invert", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                                            Text("Inverts white web pages for dark rooms", fontSize = 11.sp, color = Color.Gray)
+                                            Text("📜 Seamless Webtoon Stitcher", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                            Text("Stitches image slices seamlessly & accelerates decoding", fontSize = 11.sp, color = Color.Gray)
                                         }
                                         Switch(
-                                            checked = isNightInvertMode,
+                                            checked = isWebtoonSeamlessMode,
                                             onCheckedChange = {
-                                                isNightInvertMode = it
-                                                AppPreferences.setNightInvertMode(context, it)
+                                                isWebtoonSeamlessMode = it
+                                                AppPreferences.setWebtoonSeamlessMode(context, it)
+                                                webViewRef?.isWebtoonSeamlessMode = it
                                             }
                                         )
                                     }
@@ -1987,9 +2319,18 @@ fun ReaderScreen(
         var tabFilter by remember {
             mutableStateOf(if (activeTab.isIncognito) "private" else "standard")
         }
+        var tabSearchQuery by remember { mutableStateOf("") }
         val regularTabs = tabs.filter { !it.isIncognito }
         val incognitoTabs = tabs.filter { it.isIncognito }
         val displayedTabs = if (tabFilter == "private") incognitoTabs else regularTabs
+        val filteredTabs = if (tabSearchQuery.isBlank()) {
+            displayedTabs
+        } else {
+            displayedTabs.filter {
+                it.title.contains(tabSearchQuery, ignoreCase = true) ||
+                it.url.contains(tabSearchQuery, ignoreCase = true)
+            }
+        }
 
         Dialog(
             onDismissRequest = { showTabsSheet = false },
@@ -2159,6 +2500,61 @@ fun ReaderScreen(
 
                         Spacer(modifier = Modifier.height(10.dp))
 
+                        // Search/Filter Tabs Input Bar when more than 4 tabs are open
+                        if (tabs.size > 4) {
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(38.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                color = Color(0xFF1E2232),
+                                border = BorderStroke(1.dp, Color(0xFF2E354B))
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(horizontal = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Search,
+                                        contentDescription = null,
+                                        tint = Color.Gray,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    BasicTextField(
+                                        value = tabSearchQuery,
+                                        onValueChange = { tabSearchQuery = it },
+                                        textStyle = TextStyle(color = Color.White, fontSize = 12.sp),
+                                        singleLine = true,
+                                        modifier = Modifier.weight(1f),
+                                        cursorBrush = SolidColor(Color(0xFF64B5F6)),
+                                        decorationBox = { innerTextField ->
+                                            if (tabSearchQuery.isEmpty()) {
+                                                Text("Search open tabs...", color = Color.Gray, fontSize = 12.sp)
+                                            }
+                                            innerTextField()
+                                        }
+                                    )
+                                    if (tabSearchQuery.isNotEmpty()) {
+                                        IconButton(
+                                            onClick = { tabSearchQuery = "" },
+                                            modifier = Modifier.size(20.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Close,
+                                                contentDescription = "Clear search",
+                                                tint = Color.Gray,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(10.dp))
+                        }
+
                         // Tab Content Area: either empty state (if private empty) or grid
                         if (tabFilter == "private" && incognitoTabs.isEmpty()) {
                             // Sleek Firefox-style Private Browsing Empty State
@@ -2234,15 +2630,33 @@ fun ReaderScreen(
                                 verticalArrangement = Arrangement.spacedBy(10.dp),
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                items(displayedTabs, key = { it.id }) { tab ->
+                                items(filteredTabs, key = { it.id }) { tab ->
                                     val isActive = tab.id == activeTabId
+                                    val isHibernated = hibernatedTabIds.contains(tab.id)
                                     val domain = runCatching { Uri.parse(tab.url).host }.getOrNull().orEmpty()
                                     val isComicSite = domain.contains("comix") || domain.contains("manga")
+                                    var cardSwipeOffset by remember { mutableFloatStateOf(0f) }
 
                                     Card(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .height(140.dp)
+                                            .height(150.dp)
+                                            .offset { IntOffset(cardSwipeOffset.roundToInt(), 0) }
+                                            .pointerInput(tab.id) {
+                                                detectHorizontalDragGestures(
+                                                    onDragEnd = {
+                                                        if (cardSwipeOffset < -160f || cardSwipeOffset > 160f) {
+                                                            closeTab(tab.id)
+                                                        }
+                                                        cardSwipeOffset = 0f
+                                                    },
+                                                    onDragCancel = { cardSwipeOffset = 0f },
+                                                    onHorizontalDrag = { change, dragAmount ->
+                                                        change.consume()
+                                                        cardSwipeOffset += dragAmount
+                                                    }
+                                                )
+                                            }
                                             .clickable {
                                                 selectTab(tab.id)
                                                 showTabsSheet = false
@@ -2270,7 +2684,7 @@ fun ReaderScreen(
                                                 .padding(10.dp),
                                             verticalArrangement = Arrangement.SpaceBetween
                                         ) {
-                                            // Card Top: Icon, Domain, Close Button
+                                            // Card Top: Icon, Domain, Hibernation Badge, Close Button
                                             Row(
                                                 modifier = Modifier.fillMaxWidth(),
                                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -2292,6 +2706,24 @@ fun ReaderScreen(
                                                         maxLines = 1,
                                                         overflow = TextOverflow.Ellipsis
                                                     )
+                                                }
+
+                                                // Hibernation badge if tab memory was freed
+                                                if (isHibernated) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .clip(RoundedCornerShape(6.dp))
+                                                            .background(Color(0xFF065F46))
+                                                            .padding(horizontal = 5.dp, vertical = 2.dp)
+                                                    ) {
+                                                        Text(
+                                                            text = "⚡ Saved",
+                                                            color = Color(0xFFA7F3D0),
+                                                            fontSize = 9.sp,
+                                                            fontWeight = FontWeight.Bold
+                                                        )
+                                                    }
+                                                    Spacer(modifier = Modifier.width(4.dp))
                                                 }
 
                                                 // Close Tab button
@@ -2340,14 +2772,37 @@ fun ReaderScreen(
                                                 }
                                             }
 
-                                            // Card Bottom: URL preview
-                                            Text(
-                                                text = if (tab.url == AppPreferences.DEFAULT_HOME_URL || tab.url == "about:home") "about:home" else tab.url,
-                                                color = if (tab.isIncognito) Color(0xFFA855F7).copy(alpha = 0.7f) else Color.DarkGray,
-                                                fontSize = 10.sp,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
+                                            // Card Bottom: Reading Progress Bar & URL preview
+                                            Column(modifier = Modifier.fillMaxWidth()) {
+                                                if (tab.scrollProgress > 0f) {
+                                                    val progressPct = (tab.scrollProgress * 100).toInt().coerceIn(1, 100)
+                                                    Row(
+                                                        modifier = Modifier.fillMaxWidth().padding(bottom = 3.dp),
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        LinearProgressIndicator(
+                                                            progress = { tab.scrollProgress },
+                                                            modifier = Modifier.weight(1f).height(3.dp),
+                                                            color = if (tab.isIncognito) Color(0xFFA855F7) else Color(0xFF38BDF8),
+                                                            trackColor = Color(0xFF22293C)
+                                                        )
+                                                        Spacer(modifier = Modifier.width(6.dp))
+                                                        Text(
+                                                            text = "$progressPct%",
+                                                            fontSize = 9.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = Color(0xFF94A3B8)
+                                                        )
+                                                    }
+                                                }
+                                                Text(
+                                                    text = if (tab.url == AppPreferences.DEFAULT_HOME_URL || tab.url == "about:home") "about:home" else tab.url,
+                                                    color = if (tab.isIncognito) Color(0xFFA855F7).copy(alpha = 0.7f) else Color.DarkGray,
+                                                    fontSize = 10.sp,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
                                         }
                                     }
                                 }

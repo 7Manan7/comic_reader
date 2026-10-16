@@ -48,8 +48,19 @@ class ComicWebView @JvmOverloads constructor(
     var onShowCustomView: ((view: View, callback: WebChromeClient.CustomViewCallback) -> Unit)? = null
     var onHideCustomView: (() -> Unit)? = null
     var onVideoPlaybackChanged: ((Boolean) -> Unit)? = null
+    var onScrollProgress: ((Float) -> Unit)? = null
+    var onChapterNavigation: ((chapterLabel: String, prevUrl: String, nextUrl: String) -> Unit)? = null
+    var onAutoScrollStatusChanged: ((Boolean) -> Unit)? = null
 
+    var isWebtoonSeamlessMode: Boolean = true
+
+    private var currentColorProfile: ReadingColorProfile = ReadingColorProfile.ORIGINAL
     private var isInvertedMode: Boolean = false
+    private var isAutoScrollActive: Boolean = false
+    private var isAutoScrollPausedByTouch: Boolean = false
+    private var currentAutoScrollSpeed: Float = 1.0f
+    private var pendingScrollRatio: Float? = null
+
     private var downX = 0f
     private var downY = 0f
     private var downTime = 0L
@@ -90,6 +101,37 @@ class ComicWebView @JvmOverloads constructor(
             val webView = webViewRef.get() ?: return
             webView.post {
                 webView.onVideoPlaybackChanged?.invoke(isPlaying)
+            }
+        }
+
+        @JavascriptInterface
+        fun onScrollProgressChanged(progress: Float) {
+            val webView = webViewRef.get() ?: return
+            webView.post {
+                webView.onScrollProgress?.invoke(progress.coerceIn(0f, 1f))
+            }
+        }
+
+        @JavascriptInterface
+        fun onChapterNavigationDetected(chapterLabel: String, prevUrl: String, nextUrl: String) {
+            val webView = webViewRef.get() ?: return
+            webView.post {
+                val label = if (chapterLabel.isNotBlank()) {
+                    chapterLabel
+                } else {
+                    ReaderOptimizer.extractChapterLabel(webView.title ?: "", webView.url ?: "") ?: ""
+                }
+                webView.onChapterNavigation?.invoke(label, prevUrl, nextUrl)
+            }
+        }
+
+        @JavascriptInterface
+        fun onAutoScrollEnded() {
+            val webView = webViewRef.get() ?: return
+            webView.post {
+                webView.isAutoScrollActive = false
+                webView.isAutoScrollPausedByTouch = false
+                webView.onAutoScrollStatusChanged?.invoke(false)
             }
         }
     }
@@ -263,19 +305,42 @@ class ComicWebView @JvmOverloads constructor(
                 if (YouTubeOptimizer.isYouTube(url)) {
                     evaluateJavascript(YouTubeOptimizer.YOUTUBE_APP_CSS, null)
                     evaluateJavascript(YouTubeOptimizer.YOUTUBE_OPTIMIZER_JS, null)
-                } else if (!AdBlockEngine.isYouTubeDomain(host)) {
-                    // Inject CSS cosmetic filtering to hide ad placeholders
-                    evaluateJavascript(AdBlockEngine.getCosmeticCss(host), null)
-                    // Re-inject Anti-popup script for dynamically loaded ad nodes
-                    evaluateJavascript(AdBlockEngine.ANTI_POPUP_JS, null)
+                } else {
+                    if (!AdBlockEngine.isYouTubeDomain(host)) {
+                        // Inject CSS cosmetic filtering to hide ad placeholders
+                        evaluateJavascript(AdBlockEngine.getCosmeticCss(host), null)
+                        // Re-inject Anti-popup script for dynamically loaded ad nodes
+                        evaluateJavascript(AdBlockEngine.ANTI_POPUP_JS, null)
+                    }
+
+                    // Inject webtoon seamless mode & lazy-load booster
+                    if (isWebtoonSeamlessMode) {
+                        evaluateJavascript(ReaderOptimizer.SEAMLESS_WEBTOON_CSS, null)
+                        evaluateJavascript(ReaderOptimizer.LAZY_LOAD_BOOSTER_JS, null)
+                    }
+
+                    // Inject reader monitor (scroll progress tracking & chapter detector)
+                    evaluateJavascript(ReaderOptimizer.READER_MONITOR_JS, null)
                 }
 
                 // Re-inject input focus listener
                 evaluateJavascript(INPUT_FOCUS_JS, null)
 
-                // Re-apply invert color filter if active
-                if (isInvertedMode) {
-                    applyInvertFilter(true)
+                // Re-apply active color profile
+                if (currentColorProfile != ReadingColorProfile.ORIGINAL) {
+                    evaluateJavascript(ReaderOptimizer.getColorProfileCss(currentColorProfile), null)
+                }
+
+                // Restore pending scroll ratio
+                pendingScrollRatio?.let { ratio ->
+                    pendingScrollRatio = null
+                    postDelayed({
+                        val range = computeVerticalScrollRange() - height
+                        if (range > 0) {
+                            val targetY = (ratio * range).toInt()
+                            scrollTo(0, targetY)
+                        }
+                    }, 350L)
                 }
 
                 onBlockedAdCountChanged?.invoke(AdBlockEngine.getBlockedCount())
@@ -392,7 +457,7 @@ class ComicWebView @JvmOverloads constructor(
     }
 
     /**
-     * Intercept touch events to support a clean tap-to-toggle HUD gesture.
+     * Intercept touch events to support a clean tap-to-toggle HUD gesture and pause/resume auto-scroll.
      * HUD toggle is strictly constrained to the center reading zone so taps on site
      * headers, search buttons, navigation bars, and footers are never intercepted.
      */
@@ -407,12 +472,31 @@ class ComicWebView @JvmOverloads constructor(
                     requestFocusFromTouch()
                 }
                 onTouchFocus?.invoke()
+
+                // Pause auto-scroll while finger is on screen
+                if (isAutoScrollActive) {
+                    isAutoScrollPausedByTouch = true
+                    evaluateJavascript(ReaderOptimizer.AUTO_SCROLL_PAUSE_JS, null)
+                }
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                if (isAutoScrollActive && isAutoScrollPausedByTouch) {
+                    isAutoScrollPausedByTouch = false
+                    evaluateJavascript(ReaderOptimizer.AUTO_SCROLL_RESUME_JS, null)
+                }
             }
             MotionEvent.ACTION_UP -> {
                 if (!hasFocus()) {
                     requestFocus()
                     requestFocusFromTouch()
                 }
+
+                // Resume auto-scroll when finger lifts
+                if (isAutoScrollActive && isAutoScrollPausedByTouch) {
+                    isAutoScrollPausedByTouch = false
+                    evaluateJavascript(ReaderOptimizer.AUTO_SCROLL_RESUME_JS, null)
+                }
+
                 val deltaX = event.x - downX
                 val deltaY = Math.abs(event.y - downY)
                 val dt = System.currentTimeMillis() - downTime
@@ -481,6 +565,52 @@ class ComicWebView @JvmOverloads constructor(
     }
 
     /**
+     * Starts hands-free 165Hz auto-scroll locked to rAF with speed multiplier (0.5x - 5.0x).
+     */
+    fun startAutoScroll(speedMultiplier: Float = 1.0f) {
+        isAutoScrollActive = true
+        isAutoScrollPausedByTouch = false
+        currentAutoScrollSpeed = speedMultiplier
+        evaluateJavascript(ReaderOptimizer.getAutoScrollStartJs(speedMultiplier), null)
+        onAutoScrollStatusChanged?.invoke(true)
+    }
+
+    /**
+     * Stops hands-free auto-scroll.
+     */
+    fun stopAutoScroll() {
+        isAutoScrollActive = false
+        isAutoScrollPausedByTouch = false
+        evaluateJavascript(ReaderOptimizer.AUTO_SCROLL_STOP_JS, null)
+        onAutoScrollStatusChanged?.invoke(false)
+    }
+
+    /**
+     * Dynamically updates hands-free auto-scroll velocity.
+     */
+    fun setAutoScrollSpeed(speedMultiplier: Float) {
+        currentAutoScrollSpeed = speedMultiplier
+        if (isAutoScrollActive) {
+            evaluateJavascript(ReaderOptimizer.getAutoScrollSpeedUpdateJs(speedMultiplier), null)
+        }
+    }
+
+    fun isAutoScrolling(): Boolean = isAutoScrollActive
+
+    fun getAutoScrollSpeed(): Float = currentAutoScrollSpeed
+
+    /**
+     * Applies eye-comfort reading color profile (Original, OLED Invert, Warm Amber, E-Ink Mono).
+     */
+    fun setColorProfile(profile: ReadingColorProfile) {
+        currentColorProfile = profile
+        isInvertedMode = (profile == ReadingColorProfile.OLED_INVERT)
+        evaluateJavascript(ReaderOptimizer.getColorProfileCss(profile), null)
+    }
+
+    fun getColorProfile(): ReadingColorProfile = currentColorProfile
+
+    /**
      * Configures privacy settings for private / incognito browsing tabs.
      */
     fun configureIncognito(isIncognito: Boolean) {
@@ -493,35 +623,26 @@ class ComicWebView @JvmOverloads constructor(
     }
 
     /**
-     * Toggles night / color inversion filter for dark room manga reading.
+     * Backward-compatible toggle for night / color inversion filter.
      */
     fun setInvertMode(enabled: Boolean) {
-        isInvertedMode = enabled
-        applyInvertFilter(enabled)
+        setColorProfile(if (enabled) ReadingColorProfile.OLED_INVERT else ReadingColorProfile.ORIGINAL)
     }
 
-    private fun applyInvertFilter(enabled: Boolean) {
-        val js = if (enabled) {
-            """
-                (function() {
-                    var filter = document.getElementById('comic-reader-invert-filter');
-                    if (!filter) {
-                        filter = document.createElement('style');
-                        filter.id = 'comic-reader-invert-filter';
-                        filter.innerHTML = 'html { filter: invert(0.9) hue-rotate(180deg) !important; background-color: #111 !important; } img, video, canvas, picture { filter: invert(1.1) hue-rotate(180deg) contrast(1.05) !important; }';
-                        (document.head || document.documentElement).appendChild(filter);
-                    }
-                })();
-            """
-        } else {
-            """
-                (function() {
-                    var filter = document.getElementById('comic-reader-invert-filter');
-                    if (filter) filter.remove();
-                })();
-            """
-        }
-        evaluateJavascript(js, null)
+    fun setPendingScrollRatio(ratio: Float) {
+        pendingScrollRatio = ratio.coerceIn(0f, 1f)
+    }
+
+    fun computeContentScrollRange(): Int = computeVerticalScrollRange()
+
+    fun scrollToBottom() {
+        val maxH = Math.max(1, computeVerticalScrollRange() - height)
+        scrollTo(0, maxH)
+    }
+
+    fun getScrollProgressRatio(): Float {
+        val range = computeVerticalScrollRange() - height
+        return if (range > 0) (scrollY.toFloat() / range).coerceIn(0f, 1f) else 0f
     }
 
     override fun onScrollChanged(l: Int, t: Int, oldl: Int, oldt: Int) {

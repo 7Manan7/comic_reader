@@ -38,4 +38,20 @@ class HistoryManagerTest {
         val formatted = item.formattedDate
         assertTrue(formatted.isNotEmpty())
     }
+
+    @Test
+    fun testHistoryItemScrollProgressAndChapter() {
+        val item = HistoryItem(
+            id = "2",
+            title = "Nano Machine;; Chapter 100",
+            url = "https://asuracomic.net/nano-machine-100",
+            timestamp = System.currentTimeMillis(),
+            scrollProgress = 0.72f,
+            detectedChapter = "Ch. 100"
+        )
+
+        assertEquals(0.72f, item.scrollProgress, 0.001f)
+        assertEquals("Ch. 100", item.detectedChapter)
+        assertTrue(item.title.contains(";;"))
+    }
 }

@@ -35,9 +35,9 @@ object BookmarkManager {
                 if (parts.size >= 3) {
                     Bookmark(
                         id = parts[0],
-                        name = parts[1],
-                        url = parts[2],
-                        icon = if (parts.size >= 4) parts[3] else "📖"
+                        name = SafeDelimiterCodec.decode(parts[1]),
+                        url = SafeDelimiterCodec.decode(parts[2]),
+                        icon = if (parts.size >= 4) SafeDelimiterCodec.decode(parts[3]) else "📖"
                     )
                 } else null
             }.ifEmpty { DEFAULT_BOOKMARKS }
@@ -69,13 +69,12 @@ object BookmarkManager {
 
     private fun save(context: Context, bookmarks: List<Bookmark>) {
         val raw = bookmarks.joinToString("\n") { 
-            "${it.id};;${sanitize(it.name)};;${sanitize(it.url)};;${it.icon}" 
+            val encName = SafeDelimiterCodec.encode(it.name)
+            val encUrl = SafeDelimiterCodec.encode(it.url)
+            val encIcon = SafeDelimiterCodec.encode(it.icon)
+            "${it.id};;$encName;;$encUrl;;$encIcon" 
         }
         getPrefs(context).edit().putString(KEY_BOOKMARKS, raw).apply()
-    }
-
-    private fun sanitize(input: String): String {
-        return input.replace("\r", "").replace("\n", " ").replace(";;", " - ").trim()
     }
 
     private fun getPrefs(context: Context): SharedPreferences {

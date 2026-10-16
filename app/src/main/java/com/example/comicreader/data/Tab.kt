@@ -10,5 +10,7 @@ data class Tab(
     val title: String = "New Tab",
     val url: String = AppPreferences.DEFAULT_HOME_URL,
     val lastAccessed: Long = System.currentTimeMillis(),
-    val isIncognito: Boolean = false
+    val isIncognito: Boolean = false,
+    val scrollProgress: Float = 0f,
+    val detectedChapter: String? = null
 )

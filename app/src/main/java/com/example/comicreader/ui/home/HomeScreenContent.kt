@@ -44,6 +44,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -51,6 +52,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -69,7 +71,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import android.net.Uri
 import com.example.comicreader.R
+import com.example.comicreader.adblock.AdBlockEngine
 import com.example.comicreader.data.AppPreferences
 import com.example.comicreader.data.Bookmark
 import com.example.comicreader.data.BookmarkManager
@@ -78,6 +82,10 @@ import com.example.comicreader.data.HistoryManager
 import com.example.comicreader.data.ManhwaDirectory
 import com.example.comicreader.data.ManhwaSite
 import com.example.comicreader.data.SearchEngine
+import com.example.comicreader.display.RefreshRateManager
+import com.example.comicreader.ui.ReaderOptimizer
+import com.example.comicreader.ui.WebViewPoolManager
+import kotlin.math.roundToInt
 
 /**
  * Dedicated Native Home Tab Composable for Kuro Reader.
@@ -121,6 +129,26 @@ fun HomeScreenContent(
             "Nano Machine",
             "Pick Me Up Infinite Gacha"
         )
+    }
+
+    val blockedAdsCount = AdBlockEngine.getBlockedCount()
+    val currentRefreshRate by RefreshRateManager.currentRefreshRate.collectAsState()
+    val activeWebViewsCount by WebViewPoolManager.activeWebViewCount.collectAsState()
+
+    fun formatRelativeTime(timestamp: Long): String {
+        val diff = System.currentTimeMillis() - timestamp
+        val seconds = diff / 1000
+        val minutes = seconds / 60
+        val hours = minutes / 60
+        val days = hours / 24
+        return when {
+            minutes < 1 -> "Just now"
+            minutes < 60 -> "${minutes}m ago"
+            hours < 24 -> "${hours}h ago"
+            days == 1L -> "Yesterday"
+            days < 7 -> "${days}d ago"
+            else -> "${days / 7}w ago"
+        }
     }
 
     // Filter categories for manhwa sites
@@ -449,6 +477,74 @@ fun HomeScreenContent(
             }
         }
 
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // --- 2.5 SHIELD & PERFORMANCE TELEMETRY STRIP ---
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp)),
+            color = Color(0xFF131722),
+            border = BorderStroke(1.dp, Color(0xFF232A3B))
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 9.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Shield Telemetry
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(text = "🛡️", fontSize = 13.sp)
+                    Spacer(modifier = Modifier.width(5.dp))
+                    Text(
+                        text = "$blockedAdsCount Blocked",
+                        color = Color(0xFF4ADE80),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .size(width = 1.dp, height = 12.dp)
+                        .background(Color(0xFF2A3447))
+                )
+
+                // Display Refresh Rate Telemetry
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(text = "⚡", fontSize = 13.sp)
+                    Spacer(modifier = Modifier.width(5.dp))
+                    val hzValue = if (currentRefreshRate > 0) "${currentRefreshRate.roundToInt()}Hz" else "165Hz"
+                    Text(
+                        text = "Display: $hzValue",
+                        color = Color(0xFF60A5FA),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .size(width = 1.dp, height = 12.dp)
+                        .background(Color(0xFF2A3447))
+                )
+
+                // Active RAM Pool Telemetry
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(text = "🧹", fontSize = 13.sp)
+                    Spacer(modifier = Modifier.width(5.dp))
+                    Text(
+                        text = "RAM: $activeWebViewsCount/5 Tabs",
+                        color = Color(0xFFA78BFA),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+        }
+
         Spacer(modifier = Modifier.height(24.dp))
 
         // --- 3. CURATED BOOKMARKED MANHWA SITES ---
@@ -697,50 +793,123 @@ fun HomeScreenContent(
 
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         recentHistory.forEach { item ->
+                            val chLabel = item.detectedChapter ?: ReaderOptimizer.extractChapterLabel(item.title, item.url)
+                            val domain = runCatching { Uri.parse(item.url).host?.removePrefix("www.") }.getOrNull().orEmpty()
+                            val progressPercent = (item.scrollProgress * 100).toInt().coerceIn(0, 100)
+                            val relativeTime = formatRelativeTime(item.timestamp)
+
                             Surface(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clip(RoundedCornerShape(10.dp))
+                                    .clip(RoundedCornerShape(12.dp))
                                     .clickable { onNavigate(item.url, item.title) },
                                 color = Color(0xFF1B202D),
-                                shape = RoundedCornerShape(10.dp)
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, Color(0xFF282F42))
                             ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.History,
-                                        contentDescription = null,
-                                        tint = Color(0xFF64748B),
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(10.dp))
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = item.title.ifBlank { item.url },
-                                            color = Color.White,
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Medium,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
+                                Column(modifier = Modifier.fillMaxWidth()) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.History,
+                                            contentDescription = null,
+                                            tint = Color(0xFF64748B),
+                                            modifier = Modifier.size(16.dp)
                                         )
-                                        Text(
-                                            text = item.url,
-                                            color = Color(0xFF64748B),
-                                            fontSize = 10.sp,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                if (!chLabel.isNullOrBlank()) {
+                                                    Surface(
+                                                        color = Color(0xFF3B0764),
+                                                        shape = RoundedCornerShape(6.dp),
+                                                        border = BorderStroke(0.5.dp, Color(0xFFA855F7))
+                                                    ) {
+                                                        Text(
+                                                            text = chLabel,
+                                                            color = Color(0xFFE9D5FF),
+                                                            fontSize = 10.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                                        )
+                                                    }
+                                                }
+                                                if (domain.isNotBlank()) {
+                                                    Surface(
+                                                        color = Color(0xFF1E293B),
+                                                        shape = RoundedCornerShape(6.dp)
+                                                    ) {
+                                                        Text(
+                                                            text = domain,
+                                                            color = Color(0xFF94A3B8),
+                                                            fontSize = 10.sp,
+                                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                                        )
+                                                    }
+                                                }
+                                                Spacer(modifier = Modifier.weight(1f))
+                                                Text(
+                                                    text = relativeTime,
+                                                    color = Color(0xFF64748B),
+                                                    fontSize = 10.sp
+                                                )
+                                            }
+
+                                            Spacer(modifier = Modifier.height(4.dp))
+
+                                            Text(
+                                                text = item.title.ifBlank { item.url },
+                                                color = Color.White,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+
+                                        Spacer(modifier = Modifier.width(8.dp))
+
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            if (progressPercent > 0) {
+                                                Text(
+                                                    text = "$progressPercent%",
+                                                    color = Color(0xFF60A5FA),
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                            Icon(
+                                                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                                contentDescription = "Open",
+                                                tint = Color(0xFF60A5FA),
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    }
+
+                                    // Reading progress bar along bottom of card
+                                    if (progressPercent > 0) {
+                                        LinearProgressIndicator(
+                                            progress = { progressPercent / 100f },
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(2.5.dp),
+                                            color = Color(0xFF3B82F6),
+                                            trackColor = Color(0xFF242B3B)
                                         )
                                     }
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                                        contentDescription = "Open",
-                                        tint = Color(0xFF60A5FA),
-                                        modifier = Modifier.size(16.dp)
-                                    )
                                 }
                             }
                         }

@@ -97,4 +97,24 @@ class TabManagerTest {
         assertEquals("2", incognitoTabs[0].id)
         assertEquals("4", incognitoTabs[1].id)
     }
+
+    @Test
+    fun testTabScrollProgressAndChapter() {
+        val tab = Tab(
+            id = "prog-tab",
+            title = "Solo Leveling Chapter 142;; Special Title\nSecond Line",
+            url = "https://asuracomic.net/chapter-142",
+            scrollProgress = 0.68f,
+            detectedChapter = "Ch. 142"
+        )
+
+        assertEquals(0.68f, tab.scrollProgress, 0.001f)
+        assertEquals("Ch. 142", tab.detectedChapter)
+        assertTrue(tab.title.contains(";;"))
+        assertTrue(tab.title.contains("\n"))
+
+        val updated = tab.copy(scrollProgress = 0.95f)
+        assertEquals(0.95f, updated.scrollProgress, 0.001f)
+        assertEquals("Ch. 142", updated.detectedChapter)
+    }
 }

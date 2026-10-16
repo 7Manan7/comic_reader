@@ -67,12 +67,64 @@ object AppPreferences {
         return DEFAULT_HOME_URL
     }
 
-    // --- OLED Dark / Night Invert ---
-    fun isNightInvertMode(context: Context): Boolean =
-        getPrefs(context).getBoolean(KEY_NIGHT_INVERT_MODE, false)
+    private const val KEY_READING_COLOR_PROFILE = "reading_color_profile"
+    private const val KEY_WEBTOON_SEAMLESS_MODE = "webtoon_seamless_mode"
+    private const val KEY_AUTO_SCROLL_SPEED = "auto_scroll_speed"
 
-    fun setNightInvertMode(context: Context, enabled: Boolean) =
-        getPrefs(context).edit().putBoolean(KEY_NIGHT_INVERT_MODE, enabled).apply()
+    // --- Reading Color Profiles & Night Invert ---
+    fun getColorProfile(context: Context): com.example.comicreader.ui.ReadingColorProfile {
+        val id = getPrefs(context).getString(KEY_READING_COLOR_PROFILE, null)
+        if (id != null) {
+            return com.example.comicreader.ui.ReadingColorProfile.fromId(id)
+        }
+        // Fallback to legacy boolean if present
+        return if (getPrefs(context).getBoolean(KEY_NIGHT_INVERT_MODE, false)) {
+            com.example.comicreader.ui.ReadingColorProfile.OLED_INVERT
+        } else {
+            com.example.comicreader.ui.ReadingColorProfile.ORIGINAL
+        }
+    }
+
+    fun setColorProfile(context: Context, profile: com.example.comicreader.ui.ReadingColorProfile) {
+        getPrefs(context).edit()
+            .putString(KEY_READING_COLOR_PROFILE, profile.id)
+            .putBoolean(KEY_NIGHT_INVERT_MODE, profile == com.example.comicreader.ui.ReadingColorProfile.OLED_INVERT)
+            .apply()
+    }
+
+    fun getReadingColorProfile(context: Context): com.example.comicreader.ui.ReadingColorProfile =
+        getColorProfile(context)
+
+    fun setReadingColorProfile(context: Context, profile: com.example.comicreader.ui.ReadingColorProfile) =
+        setColorProfile(context, profile)
+
+    fun isNightInvertMode(context: Context): Boolean =
+        getColorProfile(context) == com.example.comicreader.ui.ReadingColorProfile.OLED_INVERT
+
+    fun setNightInvertMode(context: Context, enabled: Boolean) {
+        val profile = if (enabled) com.example.comicreader.ui.ReadingColorProfile.OLED_INVERT else com.example.comicreader.ui.ReadingColorProfile.ORIGINAL
+        setColorProfile(context, profile)
+    }
+
+    // --- Webtoon Seamless Stitching & Lazy Booster ---
+    fun isWebtoonSeamlessModeEnabled(context: Context): Boolean =
+        getPrefs(context).getBoolean(KEY_WEBTOON_SEAMLESS_MODE, true)
+
+    fun setWebtoonSeamlessModeEnabled(context: Context, enabled: Boolean) =
+        getPrefs(context).edit().putBoolean(KEY_WEBTOON_SEAMLESS_MODE, enabled).apply()
+
+    fun isWebtoonSeamlessMode(context: Context): Boolean =
+        isWebtoonSeamlessModeEnabled(context)
+
+    fun setWebtoonSeamlessMode(context: Context, enabled: Boolean) =
+        setWebtoonSeamlessModeEnabled(context, enabled)
+
+    // --- Hands-Free Auto Scroll Speed ---
+    fun getAutoScrollSpeed(context: Context): Float =
+        getPrefs(context).getFloat(KEY_AUTO_SCROLL_SPEED, 1.0f)
+
+    fun setAutoScrollSpeed(context: Context, speed: Float) =
+        getPrefs(context).edit().putFloat(KEY_AUTO_SCROLL_SPEED, speed).apply()
 
     // --- Keep Screen Awake ---
     fun isKeepScreenOn(context: Context): Boolean =

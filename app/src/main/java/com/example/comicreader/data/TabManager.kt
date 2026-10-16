@@ -46,12 +46,21 @@ object TabManager {
             val parsedTabs = raw.lines().mapNotNull { line ->
                 val parts = line.split(";;")
                 if (parts.size >= 3) {
+                    val id = parts[0]
+                    val title = SafeDelimiterCodec.decode(parts[1]).ifBlank { "New Tab" }
+                    val url = SafeDelimiterCodec.decode(parts[2]).ifBlank { AppPreferences.DEFAULT_HOME_URL }
+                    val lastAccessed = if (parts.size >= 4) parts[3].toLongOrNull() ?: System.currentTimeMillis() else System.currentTimeMillis()
+                    val isIncognito = if (parts.size >= 5) parts[4].toBoolean() else false
+                    val scrollProgress = if (parts.size >= 6) parts[5].toFloatOrNull() ?: 0f else 0f
+                    val detectedChapter = if (parts.size >= 7) SafeDelimiterCodec.decode(parts[6]).ifBlank { null } else null
                     Tab(
-                        id = parts[0],
-                        title = parts[1].ifBlank { "New Tab" },
-                        url = parts[2].ifBlank { AppPreferences.DEFAULT_HOME_URL },
-                        lastAccessed = if (parts.size >= 4) parts[3].toLongOrNull() ?: System.currentTimeMillis() else System.currentTimeMillis(),
-                        isIncognito = if (parts.size >= 5) parts[4].toBoolean() else false
+                        id = id,
+                        title = title,
+                        url = url,
+                        lastAccessed = lastAccessed,
+                        isIncognito = isIncognito,
+                        scrollProgress = scrollProgress,
+                        detectedChapter = detectedChapter
                     )
                 } else null
             }
@@ -214,7 +223,9 @@ object TabManager {
         tabId: String,
         title: String? = null,
         url: String? = null,
-        isIncognito: Boolean? = null
+        isIncognito: Boolean? = null,
+        scrollProgress: Float? = null,
+        detectedChapter: String? = null
     ): List<Tab> {
         val currentTabs = getTabs(context).map { tab ->
             if (tab.id == tabId) {
@@ -222,7 +233,9 @@ object TabManager {
                     title = title?.ifBlank { tab.title } ?: tab.title,
                     url = url?.ifBlank { tab.url } ?: tab.url,
                     lastAccessed = System.currentTimeMillis(),
-                    isIncognito = isIncognito ?: tab.isIncognito
+                    isIncognito = isIncognito ?: tab.isIncognito,
+                    scrollProgress = scrollProgress ?: tab.scrollProgress,
+                    detectedChapter = detectedChapter ?: tab.detectedChapter
                 )
             } else {
                 tab
@@ -233,20 +246,33 @@ object TabManager {
         return currentTabs
     }
 
+    fun updateTabScrollProgress(
+        context: Context,
+        tabId: String,
+        scrollProgress: Float,
+        detectedChapter: String? = null
+    ): List<Tab> {
+        return updateTab(
+            context = context,
+            tabId = tabId,
+            scrollProgress = scrollProgress.coerceIn(0f, 1f),
+            detectedChapter = detectedChapter
+        )
+    }
+
     fun saveTabs(context: Context, tabs: List<Tab>, activeTabId: String) {
         cachedTabs = tabs.toMutableList()
         cachedActiveTabId = activeTabId
         val raw = tabs.joinToString("\n") {
-            "${it.id};;${sanitize(it.title)};;${sanitize(it.url)};;${it.lastAccessed};;${it.isIncognito}"
+            val encTitle = SafeDelimiterCodec.encode(it.title)
+            val encUrl = SafeDelimiterCodec.encode(it.url)
+            val encChapter = SafeDelimiterCodec.encode(it.detectedChapter.orEmpty())
+            "${it.id};;$encTitle;;$encUrl;;${it.lastAccessed};;${it.isIncognito};;${it.scrollProgress};;$encChapter"
         }
         getPrefs(context).edit()
             .putString(KEY_TABS, raw)
             .putString(KEY_ACTIVE_TAB_ID, activeTabId)
             .apply()
-    }
-
-    private fun sanitize(input: String): String {
-        return input.replace("\r", "").replace("\n", " ").replace(";;", " - ").trim()
     }
 
     private fun getPrefs(context: Context): SharedPreferences {
