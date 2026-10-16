@@ -40,10 +40,10 @@ A high-performance Android browser app engineered specifically for reading onlin
     - **MangaPark** (Multi-source high-res aggregator)
   - Quick-access bookmark grid and recent reading history carousel right on the home dashboard.
 
-- **👆 Intuitive Horizontal Swipe Gestures**:
-  - **Swipe Right** (left-to-right): navigates back in browsing history, or smoothly returns to the Home dashboard if at the root page.
-  - **Swipe Left** (right-to-left): navigates forward in browsing history.
-  - Velocity and angle-calibrated gesture detection ensuring continuous vertical manga/webtoon scrolling is never accidentally interrupted.
+- **👆 Unhindered Web Comic & Manga Touch Navigation**:
+  - **Full Native Touch Transparency**: Horizontal touch events and gestures pass directly to web pages so embedded manga readers (tap/swipe to flip pages, pinch-to-zoom, and horizontal panel panning) operate smoothly without accidental gesture hijacking.
+  - **System Back & Forward Integration**: History navigation is cleanly integrated with Android's native edge-swipe back gesture and dedicated bottom bar controls (`◀` Back / `▶` Forward).
+  - **Center-Zone Tap HUD Toggle**: Single-tap anywhere in the center reading zone (`30%..70%` vertical, `20%..80%` horizontal) toggles between fullscreen reading mode and standard browser view without triggering link clicks or page turners.
 
 - **🛡️ Built-in Multi-List AdBlock & Security Engine (15 Filter Lists across 4 Categories)**:
   - **Default (4/4)**:
@@ -127,8 +127,9 @@ A high-performance Android browser app engineered specifically for reading onlin
                            │
 ┌──────────────────────────▼─────────────────────────────┐
 │              ComicWebView (AndroidView)                │
-│  - Hardware Accelerated Layer (LAYER_TYPE_HARDWARE)    │
-│  - Touch & Horizontal Swipe Gesture Navigation         │
+│  - Hardware Accelerated Layer                          │
+│  - Native Manga Touch & Panel Panning Compatibility    │
+│  - Center-Zone Tap-to-Toggle HUD Detection             │
 │  - Incognito Privacy Enforcement (No-cache, no-cookies)│
 │  - Custom WebChromeClient (Block popups & redirects)   │
 │  - Custom WebViewClient with AdBlockEngine             │
@@ -137,7 +138,7 @@ A high-performance Android browser app engineered specifically for reading onlin
 ┌──────────────────────────▼─────────────────────────────┐
 │         AdBlockEngine & Core Data Managers             │
 │  - Domain & Subdomain Filter Set (15 filter sources)   │
-│  - TabManager (Multi-tab state, LRU persistence)       │
+│  - TabManager (In-memory cached multi-tab engine)       │
 │  - SearchEngine & ManhwaDirectory catalogs             │
 │  - BookmarkManager & HistoryManager                    │
 └────────────────────────────────────────────────────────┘
@@ -194,12 +195,13 @@ A high-performance Android browser app engineered specifically for reading onlin
 
 | Feature | Control | Description |
 |---|---|---|
-| **Toggle Browser / Fullscreen** | Scroll Down / Up or Tap | Automatically switches to fullscreen when scrolling down; restores browser when scrolling up or tapping |
+| **Toggle Browser / Fullscreen** | Scroll Down / Up or Tap | Automatically switches to fullscreen when scrolling down; restores browser when scrolling up or center-tapping |
+| **Full-Width URL Bar** | Top navigation bar | Search engines or direct URL input with vertically centered, unclipped text and clear button |
 | **Tab Switcher** | Tab counter badge in bottom bar | Open tab switcher sheet, switch active tabs, close tabs, or clear all tabs |
-| **Back / Forward Navigation** | Back / Forward buttons in bottom bar (or swipe gestures) | Move backward and forward through web history or return to Home |
+| **Back / Forward Navigation** | Back / Forward buttons in bottom bar (or system back gesture) | Move backward and forward through web history or return to Home |
+| **Manga Touch & Page Turning** | Native gestures on web page | Tap or swipe on website readers to flip pages; zoom or pan wide comic panels without interference |
 | **Refresh Page** | Dedicated Refresh button in upper bar | Reload active web page or refresh home content |
 | **Incognito Mode** | New Private Tab in tab sheet | Browse privately with cache/cookies disabled, purple theme, and no history tracking |
-| **Horizontal Swipe Navigation** | Swipe Left / Right on screen | Swipe right to navigate back (or return to Home); swipe left to navigate forward |
 | **Home Dashboard** | Return to `about:home` or New Tab | Access multi-engine search, curated manhwa directory, bookmarks, and recent history |
 | **Search Engines** | Home search bar engine chips | Switch search providers between Google, DuckDuckGo, Brave, Bing, and Ecosia |
 | **Manage Sites & Bookmarks** | "+ Sites" button in bottom bar | View, add custom sites, bookmark current page, or delete saved bookmarks |

@@ -99,28 +99,43 @@ adb logcat *:E
 
 ```text
 app/src/main/java/com/example/comicreader/
-├── MainActivity.kt               # Entry activity, window insets, volume key scrolling
+├── MainActivity.kt               # Entry activity, window insets, volume key scrolling, immersive mode
 ├── adblock/
-│   ├── AdBlockEngine.kt          # Host matching, cosmetic CSS filtering, anti-popup JS
-│   └── AdBlockListManager.kt     # Multi-list downloading, GZIP extraction, 15 filter lists
+│   ├── AdBlockEngine.kt          # Host matching, cosmetic CSS filtering, anti-popup JS, whitelist
+│   ├── AdBlockListManager.kt     # Multi-list downloading, GZIP extraction, 15 filter lists
+│   └── EasyListParser.kt         # Efficient parser for ABP/EasyList rules and domain hosts
 ├── data/
-│   ├── BookmarkManager.kt        # Persistent bookmarks (Comix, MangaFreak, custom sites)
+│   ├── AppPreferences.kt         # Centralized SharedPreferences storage for settings
+│   ├── BookmarkManager.kt        # Persistent bookmarks (custom sites & directory stars)
 │   ├── HistoryManager.kt         # Browsing & reading history storage
-│   └── SessionManager.kt         # Last visited page persistence & startup session restoration
+│   ├── ManhwaDirectory.kt        # Curated catalog of top manhwa/manga/webtoon reading portals
+│   ├── SearchEngine.kt           # Search engine definitions (Google, DuckDuckGo, Brave, Bing, Ecosia)
+│   ├── SessionManager.kt         # Last visited page persistence & startup session restoration
+│   ├── Tab.kt                    # Tab data model (id, title, url, lastAccessed, isIncognito)
+│   └── TabManager.kt             # In-memory cached multi-tab engine with async disk persistence
 ├── display/
 │   └── RefreshRateManager.kt     # 60/90/120/144/165Hz display mode detection & locking
 ├── theme/
-│   ├── Color.kt / Theme.kt       # Jetpack Compose OLED dark mode styling
-└── ui/
-    ├── ComicWebView.kt           # Hardware-accelerated WebView with gesture detection
-    └── ReaderScreen.kt           # Main UI: URL bar, Brave menu, Home speed-dial, bottom bar
+│   ├── Color.kt / Theme.kt       # Jetpack Compose OLED dark & incognito purple styling
+│   └── Type.kt                   # Typography definitions
+├── ui/
+│   ├── ComicWebView.kt           # Hardware-accelerated WebView with input bridge & touch controls
+│   ├── ReaderScreen.kt           # Main UI: URL bar, tab manager, Brave menu, bottom nav bar
+│   └── home/
+│       └── HomeScreenContent.kt  # Native home dashboard: multi-engine search, manhwa directory, history
+└── youtube/
+    └── YouTubeOptimizer.kt       # YouTube web app styling, CSS optimization, and fullscreen media
 ```
 
 ---
 
 ## 💡 5. Important Architecture Decisions
 
-- **Restore Last Visited Page**: Managed by `SessionManager`. Every time a valid HTTP/HTTPS page is navigated to, its URL is automatically persisted. On app startup/restart, if "Restore Last Visited Page" is enabled (enabled by default), Kuro Reader automatically re-opens the exact comic chapter/page where the user left off. Can be toggled on/off in the Kuro Menu (⋮).
-- **HUD Tap Zones**: To prevent taps on website elements (like search buttons, logos, tabs, or chapter pagination) from accidentally toggling the reader HUD, `ComicWebView.onTouchEvent` strictly limits tap-to-toggle gestures to the **center reading zone** (`30%..70%` vertical, `20%..80%` horizontal).
-- **Non-Obscuring Column Layout**: The main browser UI uses a `Column` layout rather than an overlapping `Box`. When the URL bar is visible, the web content begins cleanly below the bar so site headers are never covered. When scrolling down to read, the bars collapse (`shrinkVertically()`) and the WebView expands to full-screen edge-to-edge.
-- **Safe Insets**: Dialog menus (Brave menu, Home speed dial, History, AdBlock) use `.windowInsetsPadding(WindowInsets.safeDrawing)` with custom border styling to guarantee options never clip off the screen on devices with hole-punch cameras or curved corners.
+- **URL Bar Architecture (No Text Clipping)**: The top navigation URL bar is constructed using a custom `Surface` with `Row(verticalAlignment = Alignment.CenterVertically)` and a `BasicTextField`. Unlike standard `OutlinedTextField` (which enforces a 56dp minimum height and 16dp vertical padding that clips descenders like `g`, `p`, `y`, `_` in compact bars), this custom implementation guarantees pixel-perfect vertical centering, ample clearance, and zero clipping across all screen densities and font scaling levels.
+- **WebView Lifecycle & Recomposition Safety**: WebViews are persistent across tab switches via `tabWebViews`. Inside `AndroidView`, the `update` block is strictly limited to declarative visual styling (`textZoom`, `invertMode`) and **never calls `loadUrl()`**. Intentional navigations (URL bar input, home dashboard cards, bookmarks, history) invoke a centralized `navigateToUrl()` function. This prevents accidental reloads back to the initial URL when Compose recomposes during scroll events, HUD auto-hiding, or progress updates.
+- **In-Memory Tab Management (`TabManager`)**: Tab state is cached synchronously in memory (`cachedTabs`, `cachedActiveTabId`) and asynchronously persisted to `SharedPreferences`. This eliminates disk read latency and prevents race conditions between rapid lifecycle events (e.g., `onUrlChanged` followed by `onTitleReceived`).
+- **Touch Handling & Manga Reader Compatibility**: `ComicWebView.onTouchEvent` allows horizontal touches and swipes to pass directly to web pages. This ensures webtoon horizontal panning, zoom gestures, and website-embedded manga readers (e.g. tap/swipe to turn pages) function natively without interference. Browser history navigation is cleanly handled via Android's native edge-swipe back gesture and dedicated bottom bar controls.
+- **HUD Tap Zones**: To prevent taps on interactive website elements (search bars, logos, navigation buttons) from inadvertently toggling the reader HUD, tap-to-toggle is strictly restricted to the **center reading zone** (`30%..70%` vertical, `20%..80%` horizontal).
+- **Restore Last Visited Page**: Managed by `SessionManager`. Every valid HTTP/HTTPS URL visited is persisted. On app launch, if "Restore Last Visited Page" is enabled, Kuro Reader automatically re-opens the exact chapter where the user left off.
+- **Non-Obscuring Column Layout**: The browser UI uses a `Column` layout rather than an overlapping `Box`. When the URL bar is visible, web content begins cleanly below the bar so site headers are never covered. When scrolling down to read, the bars collapse (`shrinkVertically()`) and the WebView expands to full-screen edge-to-edge.
+- **Safe Insets**: Dialog menus use `.windowInsetsPadding(WindowInsets.safeDrawing)` with custom border styling to guarantee options never clip off the screen on devices with hole-punch cameras or curved corners.
