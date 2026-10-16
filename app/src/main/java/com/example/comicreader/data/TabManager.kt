@@ -14,12 +14,20 @@ object TabManager {
     private const val MAX_TABS = 50
     @Volatile
     private var isFirstLaunch = true
+    private var cachedTabs: MutableList<Tab>? = null
+    private var cachedActiveTabId: String? = null
 
     fun resetFirstLaunchForTesting() {
         isFirstLaunch = true
+        cachedTabs = null
+        cachedActiveTabId = null
     }
 
     fun getTabs(context: Context): List<Tab> {
+        val memory = cachedTabs
+        if (memory != null) {
+            return memory.toList()
+        }
         val prefs = getPrefs(context)
         val raw = prefs.getString(KEY_TABS, null)
         if (raw.isNullOrBlank()) {
@@ -34,7 +42,7 @@ object TabManager {
             return listOf(defaultTab)
         }
 
-        return try {
+        val loadedTabs = try {
             val parsedTabs = raw.lines().mapNotNull { line ->
                 val parts = line.split(";;")
                 if (parts.size >= 3) {
@@ -89,19 +97,30 @@ object TabManager {
             )
             listOf(defaultTab)
         }
+
+        cachedTabs = loadedTabs.toMutableList()
+        return loadedTabs
     }
 
     fun getActiveTabId(context: Context): String {
+        val inMemoryId = cachedActiveTabId
+        val tabs = getTabs(context)
+        if (inMemoryId != null && tabs.any { it.id == inMemoryId }) {
+            return inMemoryId
+        }
         val prefs = getPrefs(context)
         val activeId = prefs.getString(KEY_ACTIVE_TAB_ID, null)
-        val tabs = getTabs(context)
-        if (activeId != null && tabs.any { it.id == activeId }) {
-            return activeId
+        val resolved = if (activeId != null && tabs.any { it.id == activeId }) {
+            activeId
+        } else {
+            tabs.firstOrNull()?.id ?: UUID.randomUUID().toString()
         }
-        return tabs.firstOrNull()?.id ?: UUID.randomUUID().toString()
+        cachedActiveTabId = resolved
+        return resolved
     }
 
     fun setActiveTabId(context: Context, tabId: String) {
+        cachedActiveTabId = tabId
         getPrefs(context).edit().putString(KEY_ACTIVE_TAB_ID, tabId).apply()
     }
 
@@ -215,6 +234,8 @@ object TabManager {
     }
 
     fun saveTabs(context: Context, tabs: List<Tab>, activeTabId: String) {
+        cachedTabs = tabs.toMutableList()
+        cachedActiveTabId = activeTabId
         val raw = tabs.joinToString("\n") {
             "${it.id};;${sanitize(it.title)};;${sanitize(it.url)};;${it.lastAccessed};;${it.isIncognito}"
         }

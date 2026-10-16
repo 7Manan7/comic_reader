@@ -45,9 +45,6 @@ class ComicWebView @JvmOverloads constructor(
     var onScrollDirectionChanged: ((isScrollingDown: Boolean) -> Unit)? = null
     var onTouchFocus: (() -> Unit)? = null
     var onNewTabRequested: ((String) -> Unit)? = null
-    var onSwipeBackToHome: (() -> Unit)? = null
-    var onSwipeBack: (() -> Unit)? = null
-    var onSwipeForward: (() -> Unit)? = null
     var onShowCustomView: ((view: View, callback: WebChromeClient.CustomViewCallback) -> Unit)? = null
     var onHideCustomView: (() -> Unit)? = null
     var onVideoPlaybackChanged: ((Boolean) -> Unit)? = null
@@ -420,31 +417,6 @@ class ComicWebView @JvmOverloads constructor(
                 val deltaY = Math.abs(event.y - downY)
                 val dt = System.currentTimeMillis() - downTime
                 val isYouTubePage = YouTubeOptimizer.isYouTube(url)
-
-                // Horizontal swipe gesture navigation (Back / Forward)
-                // When on YouTube, prevent horizontal swipe if user touched the player area (top 55%) to allow video scrubbing
-                val isTouchInPlayerArea = isYouTubePage && downY < height * 0.55f
-                val isHorizontalSwipe = !isTouchInPlayerArea && Math.abs(deltaX) > 110 && deltaY < Math.abs(deltaX) * 0.65f && dt in 50..650
-                if (isHorizontalSwipe) {
-                    if (deltaX > 0) {
-                        // Swiped right -> Go Back
-                        if (canGoBack()) {
-                            goBack()
-                            onSwipeBack?.invoke()
-                            return true
-                        } else {
-                            onSwipeBackToHome?.invoke()
-                            return true
-                        }
-                    } else {
-                        // Swiped left -> Go Forward
-                        if (canGoForward()) {
-                            goForward()
-                            onSwipeForward?.invoke()
-                            return true
-                        }
-                    }
-                }
 
                 val dx = Math.abs(deltaX)
                 val dy = deltaY

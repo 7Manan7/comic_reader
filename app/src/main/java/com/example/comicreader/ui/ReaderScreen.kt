@@ -42,8 +42,11 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -177,6 +180,19 @@ fun ReaderScreen(
     // Multi-tab WebViews cache (keeps background tabs in memory for instant switching without losing reading progress)
     val tabWebViews = remember { mutableMapOf<String, ComicWebView>() }
 
+    fun navigateToUrl(destination: String, title: String = "") {
+        val normalized = normalizeUrl(destination, context)
+        currentUrl = normalized
+        inputUrl = if (normalized == AppPreferences.DEFAULT_HOME_URL || normalized == "about:home") "" else normalized
+        val resolvedTitle = if (title.isNotBlank()) title else if (normalized.startsWith("http")) normalized else if (activeTab.isIncognito) "Private Tab" else "Home"
+        pageTitle = resolvedTitle
+        tabs = TabManager.updateTab(context, activeTabId, title = resolvedTitle, url = normalized)
+        val wv = tabWebViews[activeTabId]
+        if (wv != null && normalized.startsWith("http")) {
+            wv.loadUrl(normalized)
+        }
+    }
+
     fun selectTab(tabId: String) {
         if (tabId != activeTabId) {
             tabWebViews[activeTabId]?.onPause()
@@ -185,17 +201,27 @@ fun ReaderScreen(
             TabManager.setActiveTabId(context, tabId)
             val target = tabs.find { it.id == tabId }
             if (target != null) {
-                currentUrl = target.url
-                inputUrl = if (target.url == AppPreferences.DEFAULT_HOME_URL || target.url == "about:home") "" else target.url
-                pageTitle = target.title
                 val targetWebView = tabWebViews[tabId]
                 if (targetWebView != null) {
+                    val liveUrl = targetWebView.url
+                    if (!liveUrl.isNullOrBlank() && liveUrl.startsWith("http")) {
+                        currentUrl = liveUrl
+                        inputUrl = liveUrl
+                        pageTitle = targetWebView.title ?: target.title
+                    } else {
+                        currentUrl = target.url
+                        inputUrl = if (target.url == AppPreferences.DEFAULT_HOME_URL || target.url == "about:home") "" else target.url
+                        pageTitle = target.title
+                    }
                     canGoBack = targetWebView.canGoBack()
                     canGoForward = targetWebView.canGoForward()
                     webViewRef = targetWebView
                     onRegisterWebView(targetWebView)
                     targetWebView.onResume()
                 } else {
+                    currentUrl = target.url
+                    inputUrl = if (target.url == AppPreferences.DEFAULT_HOME_URL || target.url == "about:home") "" else target.url
+                    pageTitle = target.title
                     canGoBack = false
                     canGoForward = false
                     webViewRef = null
@@ -386,48 +412,87 @@ fun ReaderScreen(
                 ) {
                     // Full-Width URL / Search bar
                     val displayUrl = if (inputUrl == AppPreferences.DEFAULT_HOME_URL || inputUrl == "about:home") "" else inputUrl
-                    OutlinedTextField(
-                        value = displayUrl,
-                        onValueChange = { inputUrl = it },
+                    Surface(
                         modifier = Modifier
                             .weight(1f)
-                            .height(48.dp)
-                            .onFocusChanged { isUrlInputFocused = it.isFocused },
-                        textStyle = MaterialTheme.typography.bodyMedium.copy(color = Color.White),
-                        singleLine = true,
-                        placeholder = {
-                            Text(
-                                text = if (activeTab.isIncognito) "Search or enter private URL..." else "Search or enter comic URL...",
-                                color = if (activeTab.isIncognito) Color(0xFFA855F7).copy(alpha = 0.7f) else Color.Gray,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        },
-                        leadingIcon = {
+                            .height(48.dp),
+                        shape = RoundedCornerShape(24.dp),
+                        color = if (activeTab.isIncognito) Color(0xFF221634) else Color(0xFF2A2A32),
+                        border = BorderStroke(
+                            width = 1.dp,
+                            color = if (isUrlInputFocused) {
+                                if (activeTab.isIncognito) Color(0xFFA855F7) else Color(0xFF64B5F6)
+                            } else {
+                                if (activeTab.isIncognito) Color(0xFF581C87) else Color(0xFF44444F)
+                            }
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             if (activeTab.isIncognito) {
                                 Text(
                                     text = "🕶️",
                                     fontSize = 15.sp,
-                                    modifier = Modifier.padding(start = 6.dp)
+                                    modifier = Modifier.padding(end = 8.dp)
                                 )
                             } else if (isHomeTab) {
                                 Icon(
                                     imageVector = Icons.Default.Search,
                                     contentDescription = "Search",
                                     tint = Color.Gray,
-                                    modifier = Modifier.size(18.dp)
+                                    modifier = Modifier
+                                        .size(18.dp)
+                                        .padding(end = 4.dp)
                                 )
+                                Spacer(modifier = Modifier.width(4.dp))
                             } else {
                                 Text(
                                     text = "🛡️",
                                     fontSize = 14.sp,
                                     modifier = Modifier
                                         .clickable { showAdBlockDialog = true }
-                                        .padding(start = 6.dp)
+                                        .padding(end = 8.dp)
                                 )
                             }
-                        },
-                        trailingIcon = {
+
+                            Box(
+                                modifier = Modifier.weight(1f),
+                                contentAlignment = Alignment.CenterStart
+                            ) {
+                                if (displayUrl.isEmpty()) {
+                                    Text(
+                                        text = if (activeTab.isIncognito) "Search or enter private URL..." else "Search or enter comic URL...",
+                                        color = if (activeTab.isIncognito) Color(0xFFA855F7).copy(alpha = 0.7f) else Color.Gray,
+                                        fontSize = 14.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                BasicTextField(
+                                    value = displayUrl,
+                                    onValueChange = { inputUrl = it },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .onFocusChanged { isUrlInputFocused = it.isFocused },
+                                    textStyle = TextStyle(
+                                        color = Color.White,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Normal
+                                    ),
+                                    singleLine = true,
+                                    cursorBrush = SolidColor(if (activeTab.isIncognito) Color(0xFFA855F7) else Color(0xFF64B5F6)),
+                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+                                    keyboardActions = KeyboardActions(onGo = {
+                                        focusManager.clearFocus()
+                                        navigateToUrl(inputUrl)
+                                    })
+                                )
+                            }
+
                             if (displayUrl.isNotEmpty()) {
                                 IconButton(
                                     onClick = { inputUrl = "" },
@@ -441,24 +506,8 @@ fun ReaderScreen(
                                     )
                                 }
                             }
-                        },
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-                        keyboardActions = KeyboardActions(onGo = {
-                            focusManager.clearFocus()
-                            val destination = normalizeUrl(inputUrl, context)
-                            currentUrl = destination
-                            val title = if (destination.startsWith("http")) inputUrl else if (activeTab.isIncognito) "Private Tab" else "Home"
-                            tabs = TabManager.updateTab(context, activeTabId, title = title, url = destination)
-                            tabWebViews[activeTabId]?.loadUrl(destination)
-                        }),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = if (activeTab.isIncognito) Color(0xFFA855F7) else Color(0xFF64B5F6),
-                            unfocusedBorderColor = if (activeTab.isIncognito) Color(0xFF581C87) else Color(0xFF44444F),
-                            focusedContainerColor = if (activeTab.isIncognito) Color(0xFF221634) else Color(0xFF2A2A32),
-                            unfocusedContainerColor = if (activeTab.isIncognito) Color(0xFF221634) else Color(0xFF2A2A32)
-                        ),
-                        shape = RoundedCornerShape(24.dp)
-                    )
+                        }
+                    }
 
                     Spacer(modifier = Modifier.width(6.dp))
 
@@ -493,11 +542,7 @@ fun ReaderScreen(
             if (isHomeTab) {
                 HomeScreenContent(
                     onNavigate = { destination, title ->
-                        currentUrl = destination
-                        inputUrl = destination
-                        pageTitle = title
-                        tabs = TabManager.updateTab(context, activeTabId, title = title, url = destination)
-                        tabWebViews[activeTabId]?.loadUrl(destination)
+                        navigateToUrl(destination, title)
                     },
                     onOpenInNewTab = { destination, title ->
                         addNewTab(url = destination, title = title, isIncognito = activeTab.isIncognito)
@@ -566,13 +611,6 @@ fun ReaderScreen(
                                 onNewTabRequested = { targetUrl ->
                                     addNewTab(targetUrl, "New Tab", isIncognito = activeTab.isIncognito)
                                 }
-                                onSwipeBackToHome = {
-                                    val homeUrl = AppPreferences.DEFAULT_HOME_URL
-                                    currentUrl = homeUrl
-                                    inputUrl = ""
-                                    pageTitle = if (activeTab.isIncognito) "Private Tab" else "Home"
-                                    tabs = TabManager.updateTab(context, targetTabId, title = pageTitle, url = homeUrl)
-                                }
                                 onScrollDirectionChanged = { isScrollingDown ->
                                     if (isScrollingDown) {
                                         if (isHudVisible) {
@@ -620,7 +658,7 @@ fun ReaderScreen(
                                 canGoBack = existing.canGoBack()
                                 canGoForward = existing.canGoForward()
                                 blockedAdCount = AdBlockEngine.getBlockedCount()
-                                if (!existing.isCurrentOrLoadingUrl(activeTab.url) && activeTab.url.startsWith("http")) {
+                                if (existing.url.isNullOrBlank() && activeTab.url.startsWith("http")) {
                                     existing.loadUrl(activeTab.url)
                                 }
                                 existing
@@ -634,7 +672,7 @@ fun ReaderScreen(
                                     bindCallbacks()
                                     setInvertMode(isNightInvertMode)
                                     settings.textZoom = webTextZoom
-                                    if (!isCurrentOrLoadingUrl(activeTab.url) && activeTab.url.startsWith("http")) {
+                                    if (activeTab.url.startsWith("http")) {
                                         loadUrl(activeTab.url)
                                     }
                                     tabWebViews[targetTabId] = this
@@ -648,9 +686,6 @@ fun ReaderScreen(
                             webViewRef = webView
                             webView.setInvertMode(isNightInvertMode)
                             webView.settings.textZoom = webTextZoom
-                            if (!webView.isCurrentOrLoadingUrl(activeTab.url) && activeTab.url.startsWith("http")) {
-                                webView.loadUrl(activeTab.url)
-                            }
                         }
                     )
                 }
@@ -1681,10 +1716,7 @@ fun ReaderScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
-                                    inputUrl = bookmark.url
-                                    currentUrl = bookmark.url
-                                    tabs = TabManager.updateTab(context, activeTabId, title = bookmark.name, url = bookmark.url)
-                                    webViewRef?.loadUrl(bookmark.url)
+                                    navigateToUrl(bookmark.url, bookmark.name)
                                     showBookmarksSheet = false
                                 }
                                 .padding(12.dp),
@@ -1891,10 +1923,7 @@ fun ReaderScreen(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clickable {
-                                            inputUrl = item.url
-                                            currentUrl = item.url
-                                            tabs = TabManager.updateTab(context, activeTabId, title = item.title, url = item.url)
-                                            webViewRef?.loadUrl(item.url)
+                                            navigateToUrl(item.url, item.title)
                                             showHistorySheet = false
                                             historySearchQuery = ""
                                         }

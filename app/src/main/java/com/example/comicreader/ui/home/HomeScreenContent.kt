@@ -342,6 +342,7 @@ fun HomeScreenContent(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
                     modifier = Modifier.fillMaxWidth(),
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = Color.White, fontSize = 14.sp),
                     placeholder = {
                         Text(
                             text = selectedEngine.hintText,
