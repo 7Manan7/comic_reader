@@ -12,8 +12,22 @@ object TabManager {
     private const val KEY_TABS = "open_tabs"
     private const val KEY_ACTIVE_TAB_ID = "active_tab_id"
     private const val MAX_TABS = 50
+    @Volatile
+    private var isFirstLaunch = true
+    private var cachedTabs: MutableList<Tab>? = null
+    private var cachedActiveTabId: String? = null
+
+    fun resetFirstLaunchForTesting() {
+        isFirstLaunch = true
+        cachedTabs = null
+        cachedActiveTabId = null
+    }
 
     fun getTabs(context: Context): List<Tab> {
+        val memory = cachedTabs
+        if (memory != null) {
+            return memory.toList()
+        }
         val prefs = getPrefs(context)
         val raw = prefs.getString(KEY_TABS, null)
         if (raw.isNullOrBlank()) {
@@ -28,18 +42,41 @@ object TabManager {
             return listOf(defaultTab)
         }
 
-        return try {
-            raw.lines().mapNotNull { line ->
+        val loadedTabs = try {
+            val parsedTabs = raw.lines().mapNotNull { line ->
                 val parts = line.split(";;")
                 if (parts.size >= 3) {
                     Tab(
                         id = parts[0],
                         title = parts[1].ifBlank { "New Tab" },
                         url = parts[2].ifBlank { AppPreferences.DEFAULT_HOME_URL },
-                        lastAccessed = if (parts.size >= 4) parts[3].toLongOrNull() ?: System.currentTimeMillis() else System.currentTimeMillis()
+                        lastAccessed = if (parts.size >= 4) parts[3].toLongOrNull() ?: System.currentTimeMillis() else System.currentTimeMillis(),
+                        isIncognito = if (parts.size >= 5) parts[4].toBoolean() else false
                     )
                 } else null
-            }.ifEmpty {
+            }
+
+            // On cold start / fresh launch: purge any incognito tabs from previous session
+            val sanitized = if (isFirstLaunch) {
+                isFirstLaunch = false
+                val filtered = parsedTabs.filter { !it.isIncognito }
+                if (filtered.size != parsedTabs.size) {
+                    val defaultUrl = SessionManager.getInitialUrl(context)
+                    val toSave = filtered.ifEmpty {
+                        listOf(Tab(title = "Home", url = defaultUrl, lastAccessed = System.currentTimeMillis()))
+                    }
+                    val currentActive = prefs.getString(KEY_ACTIVE_TAB_ID, null)
+                    val nextActive = if (toSave.any { it.id == currentActive }) currentActive!! else toSave.first().id
+                    saveTabs(context, toSave, nextActive)
+                    toSave
+                } else {
+                    parsedTabs
+                }
+            } else {
+                parsedTabs
+            }
+
+            sanitized.ifEmpty {
                 val defaultUrl = SessionManager.getInitialUrl(context)
                 val defaultTab = Tab(
                     id = UUID.randomUUID().toString(),
@@ -60,33 +97,46 @@ object TabManager {
             )
             listOf(defaultTab)
         }
+
+        cachedTabs = loadedTabs.toMutableList()
+        return loadedTabs
     }
 
     fun getActiveTabId(context: Context): String {
+        val inMemoryId = cachedActiveTabId
+        val tabs = getTabs(context)
+        if (inMemoryId != null && tabs.any { it.id == inMemoryId }) {
+            return inMemoryId
+        }
         val prefs = getPrefs(context)
         val activeId = prefs.getString(KEY_ACTIVE_TAB_ID, null)
-        val tabs = getTabs(context)
-        if (activeId != null && tabs.any { it.id == activeId }) {
-            return activeId
+        val resolved = if (activeId != null && tabs.any { it.id == activeId }) {
+            activeId
+        } else {
+            tabs.firstOrNull()?.id ?: UUID.randomUUID().toString()
         }
-        return tabs.firstOrNull()?.id ?: UUID.randomUUID().toString()
+        cachedActiveTabId = resolved
+        return resolved
     }
 
     fun setActiveTabId(context: Context, tabId: String) {
+        cachedActiveTabId = tabId
         getPrefs(context).edit().putString(KEY_ACTIVE_TAB_ID, tabId).apply()
     }
 
     fun createTab(
         context: Context,
         url: String = AppPreferences.DEFAULT_HOME_URL,
-        title: String = "New Tab"
+        title: String = "New Tab",
+        isIncognito: Boolean = false
     ): Pair<List<Tab>, Tab> {
         val currentTabs = getTabs(context).toMutableList()
         val newTab = Tab(
             id = UUID.randomUUID().toString(),
-            title = title,
+            title = if (title == "New Tab" && isIncognito) "Private Tab" else title,
             url = if (url.isBlank()) AppPreferences.DEFAULT_HOME_URL else url,
-            lastAccessed = System.currentTimeMillis()
+            lastAccessed = System.currentTimeMillis(),
+            isIncognito = isIncognito
         )
         currentTabs.add(newTab)
         val trimmed = if (currentTabs.size > MAX_TABS) currentTabs.takeLast(MAX_TABS) else currentTabs
@@ -136,18 +186,43 @@ object TabManager {
         return Pair(listOf(defaultTab), defaultTab.id)
     }
 
+    fun closeAllIncognitoTabs(context: Context): Pair<List<Tab>, String> {
+        val currentTabs = getTabs(context).toMutableList()
+        currentTabs.removeAll { it.isIncognito }
+        if (currentTabs.isEmpty()) {
+            val defaultTab = Tab(
+                id = UUID.randomUUID().toString(),
+                title = "Home",
+                url = AppPreferences.DEFAULT_HOME_URL,
+                lastAccessed = System.currentTimeMillis(),
+                isIncognito = false
+            )
+            currentTabs.add(defaultTab)
+        }
+        val currentActiveId = getActiveTabId(context)
+        val newActiveId = if (currentTabs.any { it.id == currentActiveId }) {
+            currentActiveId
+        } else {
+            currentTabs.first().id
+        }
+        saveTabs(context, currentTabs, newActiveId)
+        return Pair(currentTabs, newActiveId)
+    }
+
     fun updateTab(
         context: Context,
         tabId: String,
         title: String? = null,
-        url: String? = null
+        url: String? = null,
+        isIncognito: Boolean? = null
     ): List<Tab> {
         val currentTabs = getTabs(context).map { tab ->
             if (tab.id == tabId) {
                 tab.copy(
                     title = title?.ifBlank { tab.title } ?: tab.title,
                     url = url?.ifBlank { tab.url } ?: tab.url,
-                    lastAccessed = System.currentTimeMillis()
+                    lastAccessed = System.currentTimeMillis(),
+                    isIncognito = isIncognito ?: tab.isIncognito
                 )
             } else {
                 tab
@@ -159,8 +234,10 @@ object TabManager {
     }
 
     fun saveTabs(context: Context, tabs: List<Tab>, activeTabId: String) {
+        cachedTabs = tabs.toMutableList()
+        cachedActiveTabId = activeTabId
         val raw = tabs.joinToString("\n") {
-            "${it.id};;${sanitize(it.title)};;${sanitize(it.url)};;${it.lastAccessed}"
+            "${it.id};;${sanitize(it.title)};;${sanitize(it.url)};;${it.lastAccessed};;${it.isIncognito}"
         }
         getPrefs(context).edit()
             .putString(KEY_TABS, raw)

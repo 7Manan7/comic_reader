@@ -263,4 +263,14 @@ class AdBlockEngineTest {
         assertTrue(parsed.pathPatterns.any { it.contains("pagead") })
         assertTrue(parsed.pathPatterns.any { it.contains("popup_overlay") })
     }
+
+    @Test
+    fun testAllowsYouTubeAndVideoStreamingDomains() {
+        assertFalse(AdBlockEngine.isAd("https://www.youtube.com/watch?v=dQw4w9WgXcQ"))
+        assertFalse(AdBlockEngine.isAd("https://m.youtube.com/watch?v=dQw4w9WgXcQ"))
+        assertFalse(AdBlockEngine.isAd("https://youtu.be/dQw4w9WgXcQ"))
+        assertFalse(AdBlockEngine.isAd("https://rr3---sn-4g5edn6s.googlevideo.com/videoplayback?expire=123"))
+        assertFalse(AdBlockEngine.isAd("https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg"))
+        assertFalse(AdBlockEngine.isAd("https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ"))
+    }
 }

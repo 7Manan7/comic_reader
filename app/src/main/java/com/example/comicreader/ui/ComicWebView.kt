@@ -2,6 +2,7 @@ package com.example.comicreader.ui
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
@@ -12,6 +13,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.inputmethod.InputMethodManager
 import android.webkit.ConsoleMessage
+import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -21,6 +23,7 @@ import android.webkit.WebView
 import android.webkit.WebView.HitTestResult
 import android.webkit.WebViewClient
 import com.example.comicreader.adblock.AdBlockEngine
+import com.example.comicreader.youtube.YouTubeOptimizer
 
 /**
  * High-performance hardware-accelerated WebView optimized for comic/manga reading
@@ -42,12 +45,20 @@ class ComicWebView @JvmOverloads constructor(
     var onScrollDirectionChanged: ((isScrollingDown: Boolean) -> Unit)? = null
     var onTouchFocus: (() -> Unit)? = null
     var onNewTabRequested: ((String) -> Unit)? = null
+    var onShowCustomView: ((view: View, callback: WebChromeClient.CustomViewCallback) -> Unit)? = null
+    var onHideCustomView: (() -> Unit)? = null
+    var onVideoPlaybackChanged: ((Boolean) -> Unit)? = null
 
     private var isInvertedMode: Boolean = false
     private var downX = 0f
     private var downY = 0f
     private var downTime = 0L
     private var lastScrollDirectionChangeTime = 0L
+
+    @Volatile
+    private var currentLoadedHost: String? = null
+    private var lastRequestedUrl: String? = null
+    private var isDestroyed: Boolean = false
 
     init {
         isFocusable = true
@@ -58,9 +69,12 @@ class ComicWebView @JvmOverloads constructor(
         addJavascriptInterface(WebInputBridge(this), "KuroBridge")
     }
 
-    private class WebInputBridge(private val webView: ComicWebView) {
+    private class WebInputBridge(webView: ComicWebView) {
+        private val webViewRef = java.lang.ref.WeakReference(webView)
+
         @JavascriptInterface
         fun onInputFocused() {
+            val webView = webViewRef.get() ?: return
             webView.post {
                 if (!webView.hasFocus()) {
                     webView.requestFocus()
@@ -68,6 +82,14 @@ class ComicWebView @JvmOverloads constructor(
                 }
                 val imm = webView.context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
                 imm?.showSoftInput(webView, 0)
+            }
+        }
+
+        @JavascriptInterface
+        fun onVideoPlaybackStateChanged(isPlaying: Boolean) {
+            val webView = webViewRef.get() ?: return
+            webView.post {
+                webView.onVideoPlaybackChanged?.invoke(isPlaying)
             }
         }
     }
@@ -92,7 +114,8 @@ class ComicWebView @JvmOverloads constructor(
      * Enables hardware acceleration and smooth rasterization for high refresh rates.
      */
     private fun setupHardwareAcceleration() {
-        setLayerType(View.LAYER_TYPE_HARDWARE, null)
+        // Do not force LAYER_TYPE_HARDWARE on WebView itself to prevent breaking HTML5 video surfaces
+        setLayerType(View.LAYER_TYPE_NONE, null)
         isNestedScrollingEnabled = true
         isVerticalScrollBarEnabled = false
         isHorizontalScrollBarEnabled = false
@@ -104,14 +127,17 @@ class ComicWebView @JvmOverloads constructor(
         settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
+            databaseEnabled = true
             useWideViewPort = true
             loadWithOverviewMode = true
             builtInZoomControls = true
             displayZoomControls = false
             setSupportZoom(true)
             cacheMode = WebSettings.LOAD_DEFAULT
-            mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+            mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
             mediaPlaybackRequiresUserGesture = false
+            allowFileAccess = true
+            allowContentAccess = true
 
             // Optimize text encoding and zoom
             defaultTextEncodingName = "utf-8"
@@ -121,7 +147,19 @@ class ComicWebView @JvmOverloads constructor(
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 safeBrowsingEnabled = true
             }
+
+            // Clean User-Agent: strip "Version/4.0 " and "; wv" so YouTube and streaming services
+            // recognize standard Chrome Mobile and serve full MSE video playback
+            val currentUa = userAgentString ?: ""
+            userAgentString = currentUa
+                .replace("Version/4.0 ", "")
+                .replace("; wv", "")
         }
+
+        // Enable cookies and third-party cookies for embedded videos and YouTube
+        val cookieManager = CookieManager.getInstance()
+        cookieManager.setAcceptCookie(true)
+        cookieManager.setAcceptThirdPartyCookies(this, true)
     }
 
     private fun setupClients() {
@@ -132,11 +170,40 @@ class ComicWebView @JvmOverloads constructor(
             ): Boolean {
                 val uri = request?.url ?: return false
                 val urlString = uri.toString()
-                val currentHost = runCatching { Uri.parse(this@ComicWebView.url).host }.getOrNull()
+                val currentHost = currentLoadedHost
 
-                // Block dangerous ad redirect schemes (intent:, market:, etc.)
+                // Handle vnd.youtube schemes cleanly inside Kuro Reader:
+                if (urlString.startsWith("vnd.youtube:")) {
+                    val videoId = urlString.substringAfter("vnd.youtube:").substringBefore("?").substringBefore("&")
+                    if (videoId.isNotBlank()) {
+                        this@ComicWebView.loadUrl("https://www.youtube.com/watch?v=$videoId")
+                        return true
+                    }
+                }
+
+                // Handle intent schemes with browser fallbacks:
+                if (urlString.startsWith("intent:")) {
+                    try {
+                        val intent = Intent.parseUri(urlString, Intent.URI_INTENT_SCHEME)
+                        val fallbackUrl = intent?.getStringExtra("browser_fallback_url")
+                        if (!fallbackUrl.isNullOrBlank() && (fallbackUrl.startsWith("http://") || fallbackUrl.startsWith("https://"))) {
+                            this@ComicWebView.loadUrl(fallbackUrl)
+                            return true
+                        }
+                        val dataUri = intent?.data
+                        if (dataUri != null && (dataUri.scheme == "http" || dataUri.scheme == "https")) {
+                            this@ComicWebView.loadUrl(dataUri.toString())
+                            return true
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to resolve intent: $urlString", e)
+                    }
+                }
+
+                // Block dangerous ad redirect schemes (market:, itms:, etc.)
                 if (AdBlockEngine.isDangerousRedirectScheme(urlString)) {
-                    post { onBlockedAdCountChanged?.invoke(AdBlockEngine.getBlockedCount() + 1) }
+                    val blockedCount = AdBlockEngine.incrementBlockedCount()
+                    post { onBlockedAdCountChanged?.invoke(blockedCount) }
                     return true
                 }
 
@@ -159,7 +226,7 @@ class ComicWebView @JvmOverloads constructor(
                 request: WebResourceRequest?
             ): WebResourceResponse? {
                 val url = request?.url ?: return super.shouldInterceptRequest(view, request)
-                val currentHost = runCatching { Uri.parse(this@ComicWebView.url).host }.getOrNull()
+                val currentHost = currentLoadedHost
                 if (AdBlockEngine.isAd(url, currentHost)) {
                     post { onBlockedAdCountChanged?.invoke(AdBlockEngine.getBlockedCount()) }
                     return AdBlockEngine.createEmptyResponse()
@@ -169,26 +236,39 @@ class ComicWebView @JvmOverloads constructor(
 
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                 super.onPageStarted(view, url, favicon)
+                currentLoadedHost = url?.let { runCatching { Uri.parse(it).host }.getOrNull() }
                 url?.let { onUrlChanged?.invoke(it) }
+                onVideoPlaybackChanged?.invoke(false)
                 AdBlockEngine.resetCounter()
                 onBlockedAdCountChanged?.invoke(0)
 
-                // Inject Anti-popup script as early as possible to kill window.open and click traps
-                evaluateJavascript(AdBlockEngine.ANTI_POPUP_JS, null)
+                // Inject Anti-popup script (safeguarded against YouTube) or YouTube App Optimizer
+                val host = url?.let { runCatching { Uri.parse(it).host }.getOrNull() }.orEmpty()
+                if (YouTubeOptimizer.isYouTube(url)) {
+                    evaluateJavascript(YouTubeOptimizer.YOUTUBE_APP_CSS, null)
+                    evaluateJavascript(YouTubeOptimizer.YOUTUBE_OPTIMIZER_JS, null)
+                } else if (!AdBlockEngine.isYouTubeDomain(host)) {
+                    evaluateJavascript(AdBlockEngine.ANTI_POPUP_JS, null)
+                }
                 // Inject input focus listener to trigger keyboard when site search bars are focused
                 evaluateJavascript(INPUT_FOCUS_JS, null)
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
+                currentLoadedHost = url?.let { runCatching { Uri.parse(it).host }.getOrNull() }
                 url?.let { onUrlChanged?.invoke(it) }
 
-                // Inject CSS cosmetic filtering to hide ad placeholders
                 val host = url?.let { runCatching { Uri.parse(it).host }.getOrNull() }.orEmpty()
-                evaluateJavascript(AdBlockEngine.getCosmeticCss(host), null)
-
-                // Re-inject Anti-popup script for dynamically loaded ad nodes
-                evaluateJavascript(AdBlockEngine.ANTI_POPUP_JS, null)
+                if (YouTubeOptimizer.isYouTube(url)) {
+                    evaluateJavascript(YouTubeOptimizer.YOUTUBE_APP_CSS, null)
+                    evaluateJavascript(YouTubeOptimizer.YOUTUBE_OPTIMIZER_JS, null)
+                } else if (!AdBlockEngine.isYouTubeDomain(host)) {
+                    // Inject CSS cosmetic filtering to hide ad placeholders
+                    evaluateJavascript(AdBlockEngine.getCosmeticCss(host), null)
+                    // Re-inject Anti-popup script for dynamically loaded ad nodes
+                    evaluateJavascript(AdBlockEngine.ANTI_POPUP_JS, null)
+                }
 
                 // Re-inject input focus listener
                 evaluateJavascript(INPUT_FOCUS_JS, null)
@@ -203,11 +283,36 @@ class ComicWebView @JvmOverloads constructor(
 
             override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
                 super.doUpdateVisitedHistory(view, url, isReload)
+                currentLoadedHost = url?.let { runCatching { Uri.parse(it).host }.getOrNull() }
                 url?.let { onUrlChanged?.invoke(it) }
+                if (YouTubeOptimizer.isYouTube(url)) {
+                    evaluateJavascript(YouTubeOptimizer.YOUTUBE_APP_CSS, null)
+                    evaluateJavascript(YouTubeOptimizer.YOUTUBE_OPTIMIZER_JS, null)
+                }
             }
         }
 
         webChromeClient = object : WebChromeClient() {
+            private var customVideoView: View? = null
+            private var customVideoCallback: CustomViewCallback? = null
+
+            override fun onShowCustomView(view: View?, callback: CustomViewCallback?) {
+                if (view == null || callback == null) return
+                if (customVideoView != null) {
+                    onHideCustomView()
+                    return
+                }
+                customVideoView = view
+                customVideoCallback = callback
+                this@ComicWebView.onShowCustomView?.invoke(view, callback)
+            }
+
+            override fun onHideCustomView() {
+                customVideoView = null
+                customVideoCallback?.onCustomViewHidden()
+                customVideoCallback = null
+                this@ComicWebView.onHideCustomView?.invoke()
+            }
             override fun onProgressChanged(view: WebView?, newProgress: Int) {
                 super.onProgressChanged(view, newProgress)
                 onProgressChanged?.invoke(newProgress)
@@ -308,9 +413,13 @@ class ComicWebView @JvmOverloads constructor(
                     requestFocus()
                     requestFocusFromTouch()
                 }
-                val dx = Math.abs(event.x - downX)
-                val dy = Math.abs(event.y - downY)
+                val deltaX = event.x - downX
+                val deltaY = Math.abs(event.y - downY)
                 val dt = System.currentTimeMillis() - downTime
+                val isYouTubePage = YouTubeOptimizer.isYouTube(url)
+
+                val dx = Math.abs(deltaX)
+                val dy = deltaY
 
                 // If it was a quick tap with minimal movement (< 25px, < 300ms)
                 if (dx < 25 && dy < 25 && dt < 300) {
@@ -324,11 +433,10 @@ class ComicWebView @JvmOverloads constructor(
                     }
 
                     // Only allow tap-to-toggle HUD when tapping in the center reading zone.
-                    // Taps in the top zone (site header, search button, tabs) or bottom zone
-                    // (pagination, chapter buttons, footer) must NEVER toggle HUD.
+                    // On YouTube, all taps should pass directly to the player controls, seekbar, and video cards.
                     val inCenterZoneY = event.y in (height * 0.30f)..(height * 0.70f)
                     val inCenterZoneX = event.x in (width * 0.20f)..(width * 0.80f)
-                    if (inCenterZoneY && inCenterZoneX) {
+                    if (!isYouTubePage && inCenterZoneY && inCenterZoneX) {
                         val isNavigableLink = hitType == HitTestResult.SRC_ANCHOR_TYPE ||
                                               hitType == HitTestResult.SRC_IMAGE_ANCHOR_TYPE ||
                                               hitType == HitTestResult.EDIT_TEXT_TYPE ||
@@ -370,6 +478,18 @@ class ComicWebView @JvmOverloads constructor(
         // Use smooth scroll animation in JS for maximum 120/144/165Hz fluidity
         val js = "window.scrollBy({ top: $dy, left: $dx, behavior: 'smooth' });"
         evaluateJavascript(js, null)
+    }
+
+    /**
+     * Configures privacy settings for private / incognito browsing tabs.
+     */
+    fun configureIncognito(isIncognito: Boolean) {
+        if (isIncognito) {
+            settings.cacheMode = WebSettings.LOAD_NO_CACHE
+            settings.saveFormData = false
+            clearHistory()
+            clearFormData()
+        }
     }
 
     /**
@@ -423,5 +543,33 @@ class ComicWebView @JvmOverloads constructor(
             lastScrollDirectionChangeTime = now
             onScrollDirectionChanged?.invoke(false)
         }
+    }
+
+    override fun loadUrl(url: String) {
+        lastRequestedUrl = url
+        currentLoadedHost = runCatching { Uri.parse(url).host }.getOrNull()
+        super.loadUrl(url)
+    }
+
+    override fun loadUrl(url: String, additionalHttpHeaders: Map<String, String>) {
+        lastRequestedUrl = url
+        currentLoadedHost = runCatching { Uri.parse(url).host }.getOrNull()
+        super.loadUrl(url, additionalHttpHeaders)
+    }
+
+    fun isCurrentOrLoadingUrl(targetUrl: String): Boolean {
+        val normTarget = targetUrl.trim().trimEnd('/')
+        val normCurrent = this.url?.trim()?.trimEnd('/')
+        val normRequested = lastRequestedUrl?.trim()?.trimEnd('/')
+        return normTarget == normCurrent || normTarget == normRequested
+    }
+
+    override fun destroy() {
+        if (isDestroyed) return
+        isDestroyed = true
+        (parent as? android.view.ViewGroup)?.removeView(this)
+        stopLoading()
+        clearHistory()
+        super.destroy()
     }
 }

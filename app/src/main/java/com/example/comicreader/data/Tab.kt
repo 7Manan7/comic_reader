@@ -9,5 +9,6 @@ data class Tab(
     val id: String = UUID.randomUUID().toString(),
     val title: String = "New Tab",
     val url: String = AppPreferences.DEFAULT_HOME_URL,
-    val lastAccessed: Long = System.currentTimeMillis()
+    val lastAccessed: Long = System.currentTimeMillis(),
+    val isIncognito: Boolean = false
 )
