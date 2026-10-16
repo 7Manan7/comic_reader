@@ -4,6 +4,12 @@ A high-performance Android browser app engineered specifically for reading onlin
 
 ---
 
+> 📖 **Documentation Links**:
+> - [**Technical Specifications & Feature Details**](TECHNICAL_DETAILS.md) — Comprehensive technical reference, architecture diagrams, AdBlock engine specifications, and full feature directory.
+> - [**Developer Guide & APK Build Instructions**](DEV_README.md) — Step-by-step instructions for building, installing, and debugging Kuro Reader.
+
+---
+
 ## ✨ Key Features
 
 - **🚀 High Refresh Rate Display Optimization (up to 165Hz)**:

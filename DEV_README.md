@@ -4,6 +4,10 @@ This guide explains how to build, install, test, and develop **Kuro Reader** (`c
 
 ---
 
+> 📘 For an exhaustive breakdown of all architecture components, data flow diagrams, and feature specifications, see [**TECHNICAL_DETAILS.md**](TECHNICAL_DETAILS.md).
+
+---
+
 ## 📦 1. How to Generate the APK
 
 ### Prerequisites
